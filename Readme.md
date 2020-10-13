@@ -1,0 +1,1 @@
+# snapsnap: Snapshot fuzzing
