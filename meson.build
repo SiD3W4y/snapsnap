@@ -15,7 +15,8 @@ unicorn_x86_dep = unicorn.get_variable('cm_x86_64_softmmu_dep') # Bit of a hack
 thread_dep = dependency('threads')
 
 snapsnap_sources = [
-  'src/main.cpp'
+  'src/main.cpp',
+  'src/mmu.cpp'
 ]
 
 snapsnap_headers = include_directories('include')
