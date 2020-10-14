@@ -17,8 +17,8 @@ enum MemoryProtection
 struct MemoryPage
 {
     MemoryPage() = delete;
-    MemoryPage(const MemoryPage& other) = delete;
-    MemoryPage& operator=(const MemoryPage& other) = delete;
+    MemoryPage(const MemoryPage& other);
+    MemoryPage& operator=(const MemoryPage& other);
 
     MemoryPage(std::uint64_t address, std::uint8_t* data, std::size_t size, int prot)
         : address(address), data(data), size(size), prot(prot)
@@ -44,8 +44,12 @@ class Mmu
 public:
     // TODO: Implement
     Mmu();
-    Mmu(const Mmu& other) = delete;
-    Mmu(Mmu&& other) = delete;
+
+    Mmu(Mmu&& other);
+    Mmu& operator=(Mmu&& other);
+
+    Mmu(const Mmu& other);
+    Mmu& operator=(const Mmu& other);
 
     // Allocates a new zeroed out page
     void add_page(std::uint64_t address, std::size_t size, int prot);
@@ -57,6 +61,9 @@ public:
     // exception if the pages addresses and sizes are not matching, meaning you
     // can only reset from an Mmu that has the same set of pages as you.
     void reset(const Mmu& other);
+
+    // Clears the dirty bits
+    void clear_dirty();
 
     // Write data into memory without affecting the dirty bits and without
     // checking for page permissions. This function can be used to setup

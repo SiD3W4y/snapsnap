@@ -27,8 +27,58 @@ MemoryPage& MemoryPage::operator=(MemoryPage&& other)
     return *this;
 }
 
+MemoryPage::MemoryPage(const MemoryPage& other)
+{
+    *this = other;
+}
+
+MemoryPage& MemoryPage::operator=(const MemoryPage& other)
+{
+    if (this == &other)
+        return *this;
+
+    if (data)
+        delete[] data;
+
+    address = other.address;
+    data = new std::uint8_t[other.size];
+    size = other.size;
+    prot = other.prot;
+
+    std::memcpy(data, other.data, size);
+
+    return *this;
+}
+
+
 Mmu::Mmu()
 {}
+
+Mmu::Mmu(Mmu&& other)
+{
+    *this = std::move(other);
+}
+
+Mmu& Mmu::operator=(Mmu&& other)
+{
+    pages_ = std::move(other.pages_);
+    dirty_ = std::move(other.dirty_);
+
+    return *this;
+}
+
+Mmu::Mmu(const Mmu& other)
+{
+    *this = other;
+}
+
+Mmu& Mmu::operator=(const Mmu& other)
+{
+    pages_ = other.pages_;
+    dirty_ = other.dirty_;
+
+    return *this;
+}
 
 void Mmu::add_page(std::uint64_t address, std::size_t size, int prot)
 {
@@ -78,6 +128,12 @@ void Mmu::reset(const Mmu& other)
 
         std::memcpy(dst.data, src.data, src.size);
     }
+}
+
+void Mmu::clear_dirty()
+{
+    for (std::size_t i = 0; i < dirty_.size(); i++)
+        dirty_[i] = false;
 }
 
 void Mmu::write(std::uint64_t address, void* buffer, std::size_t size)

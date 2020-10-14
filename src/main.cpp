@@ -11,5 +11,7 @@ int main(int argc, char** argv)
     for (auto& page : m)
         fmt::print("Page address: 0x{:016x} Size: {:x}\n", page.address, page.size);
 
+    ssnap::Mmu b = m;
+
     return 0;
 }
