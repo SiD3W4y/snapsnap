@@ -27,6 +27,9 @@ public:
     bool read(std::uint64_t address, void* buffer, std::size_t size);
 
 private:
+    // Maps the mmu memory into unicorn
+    void map_mmu_unicorn_();
+
     Mmu mmu_;
     uc_engine* uc_ = nullptr;
     uc_arch arch_;

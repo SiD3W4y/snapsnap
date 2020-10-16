@@ -84,12 +84,12 @@ public:
     // present in the mmu.
     auto begin()
     {
-        return pages_.cbegin();
+        return pages_.begin();
     }
 
     auto end()
     {
-        return pages_.cend();
+        return pages_.end();
     }
 
 private:

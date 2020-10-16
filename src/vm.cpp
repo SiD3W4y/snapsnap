@@ -1,6 +1,7 @@
 #include <string>
 #include <stdexcept>
 #include <cstring>
+#include "fmt/core.h"
 #include "snapsnap/vm.hh"
 
 namespace ssnap
@@ -21,6 +22,9 @@ Vm::Vm(uc_arch arch, uc_mode mode, Mmu&& mmu)
 
     // Save the initial context
     uc_context_save(uc_, cpu_context_);
+
+    // Map the mmu pages into unicorn
+    map_mmu_unicorn_();
 }
 
 Vm& Vm::operator=(const Vm& other)
@@ -40,6 +44,8 @@ Vm& Vm::operator=(const Vm& other)
         throw std::runtime_error(uc_strerror(err));
 
     uc_context_save(other.uc_, cpu_context_);
+
+    map_mmu_unicorn_();
 
     return *this;
 }
@@ -96,6 +102,17 @@ bool Vm::write(std::uint64_t address, const void* buffer, std::size_t size)
 bool Vm::read(std::uint64_t address, void* buffer, std::size_t size)
 {
     return mmu_.read(address, buffer, size);
+}
+
+void Vm::map_mmu_unicorn_()
+{
+    for (MemoryPage& page : mmu_)
+    {
+        uc_err err = uc_mem_map_ptr(uc_, page.address, page.size, page.prot, page.data);
+
+        if (err != UC_ERR_OK)
+            throw std::runtime_error(fmt::format("map_mmu_unicorn: {}", uc_strerror(err)));
+    }
 }
 
 }
