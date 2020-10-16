@@ -70,12 +70,12 @@ public:
     // the memory before a fuzz case.
     //
     // Returns true if the write succeeded.
-    bool write_raw(std::uint64_t address, void* buffer, std::size_t size);
+    bool write_raw(std::uint64_t address, const void* buffer, std::size_t size);
 
     // Write data into memory and set the dirty bit if needed.
     //
     // Returns true if the write succeeded.
-    bool write(std::uint64_t address, void* buffer, std::size_t size);
+    bool write(std::uint64_t address, const void* buffer, std::size_t size);
 
     // Reads data from memory
     bool read(std::uint64_t address, void* buffer, std::size_t size);
@@ -93,7 +93,7 @@ public:
     }
 
 private:
-    bool write_internal_(std::uint64_t address, void* buffer, std::size_t size, bool dirty);
+    bool write_internal_(std::uint64_t address, const void* buffer, std::size_t size, bool dirty);
 
     // Checks whether a range overlaps with a page
     bool range_overlap_page_(std::uint64_t address, std::size_t size);

@@ -172,12 +172,12 @@ void Mmu::clear_dirty()
         page.dirty = false;
 }
 
-bool Mmu::write_raw(std::uint64_t address, void* buffer, std::size_t size)
+bool Mmu::write_raw(std::uint64_t address, const void* buffer, std::size_t size)
 {
     return write_internal_(address, buffer, size, false);
 }
 
-bool Mmu::write(std::uint64_t address, void* buffer, std::size_t size)
+bool Mmu::write(std::uint64_t address, const void* buffer, std::size_t size)
 {
     return write_internal_(address, buffer, size, true);
 }
@@ -217,7 +217,7 @@ bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
     return true;
 }
 
-bool Mmu::write_internal_(std::uint64_t address, void* buffer, std::size_t size, bool dirty)
+bool Mmu::write_internal_(std::uint64_t address, const void* buffer, std::size_t size, bool dirty)
 {
     // XXX: This is a linear search, use a better algorithm if it becomes a bottleneck
     auto it = std::find_if(pages_.begin(), pages_.end(), [address](MemoryPage& p) {
@@ -227,7 +227,7 @@ bool Mmu::write_internal_(std::uint64_t address, void* buffer, std::size_t size,
     if (it == pages_.end())
         return false;
 
-    std::uint8_t* data_ptr = reinterpret_cast<std::uint8_t*>(buffer);
+    const std::uint8_t* data_ptr = reinterpret_cast<const std::uint8_t*>(buffer);
 
     while (size > 0 && it != pages_.end())
     {
