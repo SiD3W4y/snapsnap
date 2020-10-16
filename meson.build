@@ -16,6 +16,7 @@ thread_dep = dependency('threads')
 
 snapsnap_sources = [
   'src/main.cpp',
+  'src/vm.cpp',
   'src/mmu.cpp'
 ]
 
@@ -23,4 +24,4 @@ snapsnap_headers = include_directories('include')
 
 executable('snapsnap_test', snapsnap_sources,
   include_directories: snapsnap_headers,
-  dependencies: [thread_dep, unicorn_dep, fmt_dep])
+  dependencies: [thread_dep, unicorn_dep, unicorn_x86_dep, fmt_dep])
