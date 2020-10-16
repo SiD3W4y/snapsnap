@@ -153,6 +153,41 @@ bool Mmu::write(std::uint64_t address, void* buffer, std::size_t size)
     return write_internal_(address, buffer, size, true);
 }
 
+bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
+{
+    // XXX: This is a linear search, use a better algorithm if it becomes a bottleneck
+    auto it = std::find_if(pages_.begin(), pages_.end(), [address](MemoryPage& p) {
+            return address >= p.address && address < (p.address + p.size);
+    });
+
+    if (it == pages_.end())
+        return false;
+
+    std::uint8_t* data_ptr = reinterpret_cast<std::uint8_t*>(buffer);
+
+    while (size > 0 && it != pages_.end())
+    {
+        if (address < it->address || address >= (it->address + it->size))
+            return false;
+
+        std::size_t offset_in_page = address - it->address;
+        std::size_t bytes_to_eop = (it->address + it->size) - address;
+        std::size_t bytes_read = std::min(size, bytes_to_eop);
+
+        std::memcpy(data_ptr, it->data + offset_in_page, bytes_read);
+
+        data_ptr += bytes_read;
+        address += bytes_read;
+        size -= bytes_read;
+        ++it;
+    }
+
+    if (size > 0 && it == pages_.end())
+        return false;
+
+    return true;
+}
+
 bool Mmu::write_internal_(std::uint64_t address, void* buffer, std::size_t size, bool dirty)
 {
     // XXX: This is a linear search, use a better algorithm if it becomes a bottleneck
