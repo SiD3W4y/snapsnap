@@ -36,14 +36,14 @@ struct MemoryPage
     std::uint64_t address;
     std::uint8_t* data = nullptr;
     std::size_t size;
+    bool dirty = false;
     int prot;
 };
 
 class Mmu
 {
 public:
-    // TODO: Implement
-    Mmu();
+    Mmu(std::uint64_t page_size = 0x1000);
 
     Mmu(Mmu&& other);
     Mmu& operator=(Mmu&& other);
@@ -68,7 +68,14 @@ public:
     // Write data into memory without affecting the dirty bits and without
     // checking for page permissions. This function can be used to setup
     // the memory before a fuzz case.
-    void write(std::uint64_t address, void* buffer, std::size_t size);
+    //
+    // Returns true if the write succeeded.
+    bool write_raw(std::uint64_t address, void* buffer, std::size_t size);
+
+    // Write data into memory and set the dirty bit if needed.
+    //
+    // Returns true if the write succeeded.
+    bool write(std::uint64_t address, void* buffer, std::size_t size);
 
     // **Implementing** const iterators so a user can iterate over the pages
     // present in the mmu.
@@ -83,8 +90,10 @@ public:
     }
 
 private:
+    bool write_internal_(std::uint64_t address, void* buffer, std::size_t size, bool dirty);
+
+    std::uint64_t page_size_;
     std::vector<MemoryPage> pages_;
-    std::vector<bool> dirty_;
 };
 
 }
