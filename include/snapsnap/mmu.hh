@@ -95,6 +95,9 @@ public:
 private:
     bool write_internal_(std::uint64_t address, void* buffer, std::size_t size, bool dirty);
 
+    // Checks whether a range overlaps with a page
+    bool range_overlap_page_(std::uint64_t address, std::size_t size);
+
     std::uint64_t page_size_;
     std::vector<MemoryPage> pages_;
 };

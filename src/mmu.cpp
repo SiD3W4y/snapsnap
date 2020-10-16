@@ -79,6 +79,29 @@ Mmu& Mmu::operator=(const Mmu& other)
     return *this;
 }
 
+bool Mmu::range_overlap_page_(std::uint64_t address, std::size_t size)
+{
+    std::uint64_t left_bound = address;
+    std::uint64_t right_bound = address + size;
+
+    for (auto& page : pages_)
+    {
+        // [ L ] R
+        if (left_bound >= page.address && left_bound < (page.address + page.size))
+            return true;
+
+        // L [ R ]
+        if (right_bound >= page.address && right_bound < (page.address + page.size))
+            return true;
+
+        // L [ ] R
+        if (left_bound <= page.address && right_bound >= (page.address + page.size))
+            return true;
+    }
+
+    return false;
+}
+
 void Mmu::add_page(std::uint64_t address, std::size_t size, int prot)
 {
     if (address & (page_size_ - 1))
@@ -86,6 +109,9 @@ void Mmu::add_page(std::uint64_t address, std::size_t size, int prot)
 
     if (size & (page_size_ - 1))
         throw std::runtime_error("Address not page aligned");
+
+    if (range_overlap_page_(address, size))
+        throw std::runtime_error("Pages overlap");
 
     std::uint8_t* data = new std::uint8_t[size];
     std::memset(data, 0, size);
@@ -103,6 +129,9 @@ void Mmu::add_page(std::uint64_t address, std::size_t size, int prot, void* data
 
     if (size & (page_size_ - 1))
         throw std::runtime_error("Address not page aligned");
+
+    if (range_overlap_page_(address, size))
+        throw std::runtime_error("Pages overlap");
 
     std::uint8_t* page_data = new std::uint8_t[size];
     std::memcpy(page_data, data, size);
