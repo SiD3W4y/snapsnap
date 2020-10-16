@@ -104,6 +104,25 @@ bool Vm::read(std::uint64_t address, void* buffer, std::size_t size)
     return mmu_.read(address, buffer, size);
 }
 
+std::uint64_t Vm::get_register(int regid)
+{
+    std::uint64_t value;
+    uc_err err = uc_reg_read(uc_, regid, &value);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("get_register: {}", uc_strerror(err)));
+
+    return value;
+}
+
+void Vm::set_register(int regid, std::uint64_t value)
+{
+    uc_err err = uc_reg_write(uc_, regid, &value);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("set_register: {}", uc_strerror(err)));
+}
+
 void Vm::map_mmu_unicorn_()
 {
     for (MemoryPage& page : mmu_)

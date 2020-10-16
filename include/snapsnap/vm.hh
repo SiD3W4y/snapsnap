@@ -26,6 +26,9 @@ public:
     bool write(std::uint64_t address, const void* buffer, std::size_t size);
     bool read(std::uint64_t address, void* buffer, std::size_t size);
 
+    std::uint64_t get_register(int regid);
+    void set_register(int regid, std::uint64_t value);
+
 private:
     // Maps the mmu memory into unicorn
     void map_mmu_unicorn_();
