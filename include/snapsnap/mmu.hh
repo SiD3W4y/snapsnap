@@ -78,9 +78,16 @@ public:
     bool write(std::uint64_t address, const void* buffer, std::size_t size);
 
     // Reads data from memory
+    //
+    // Returns true if the read succeeded.
     bool read(std::uint64_t address, void* buffer, std::size_t size);
 
-    // **Implementing** const iterators so a user can iterate over the pages
+    std::uint64_t page_size()
+    {
+        return page_size_;
+    }
+
+    // **Implementing** iterators so a user can iterate over the pages
     // present in the mmu.
     auto begin()
     {

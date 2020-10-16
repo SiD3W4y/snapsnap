@@ -162,6 +162,11 @@ void Mmu::reset(const Mmu& other)
         if (dst.prot != src.prot)
             throw std::runtime_error("Page permissions mismatch");
 
+        // If the page is non writable we skip it
+        // TODO: Maybe provide an option to restore non-writable pages ?
+        if (!(dst.prot & MemoryProtection::Write) || !dst.dirty)
+            continue;
+
         std::memcpy(dst.data, src.data, src.size);
     }
 }
