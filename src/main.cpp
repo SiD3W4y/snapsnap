@@ -19,5 +19,10 @@ int main(int argc, char** argv)
     if (!vm.write(0x1000, h.c_str(), h.size()))
         fmt::print("Write failed :(\n");
 
+    std::vector<std::uint8_t> data;
+    data.resize(100);
+
+    vm.read(0x1000, data.data(), data.size());
+
     return 0;
 }

@@ -39,8 +39,7 @@ Vm& Vm::operator=(const Vm& other)
     if (err != UC_ERR_OK)
         throw std::runtime_error(uc_strerror(err));
 
-    std::size_t context_size = uc_context_size(uc_);
-    std::memcpy(cpu_context_, other.cpu_context_, context_size);
+    uc_context_save(other.uc_, cpu_context_);
 
     return *this;
 }
@@ -48,6 +47,25 @@ Vm& Vm::operator=(const Vm& other)
 Vm::Vm(const Vm& other)
 {
     *this = other;
+}
+
+Vm& Vm::operator=(Vm&& other)
+{
+    arch_ = other.arch_;
+    mode_ = other.mode_;
+    mmu_ = std::move(other.mmu_);
+    uc_ = other.uc_;
+    cpu_context_ = other.cpu_context_;
+
+    other.uc_ = nullptr;
+    other.cpu_context_ = nullptr;
+
+    return *this;
+}
+
+Vm::Vm(Vm&& other)
+{
+    *this = std::move(other);
 }
 
 Vm::~Vm()
@@ -77,7 +95,7 @@ bool Vm::write(std::uint64_t address, const void* buffer, std::size_t size)
 
 bool Vm::read(std::uint64_t address, void* buffer, std::size_t size)
 {
-    return mmu_.write_raw(address, buffer, size);
+    return mmu_.read(address, buffer, size);
 }
 
 }

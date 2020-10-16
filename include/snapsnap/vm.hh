@@ -13,6 +13,8 @@ public:
     Vm(uc_arch arch, uc_mode mode, Mmu&& mmu);
     Vm(const Vm& other);
     Vm& operator=(const Vm& other);
+    Vm(Vm&& other);
+    Vm& operator=(Vm&& other);
 
     ~Vm();
 
