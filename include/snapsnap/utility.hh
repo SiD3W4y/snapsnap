@@ -7,10 +7,14 @@
 namespace ssnap
 {
 
+struct Vm;
+
 namespace utility
 {
 
+
 const std::vector<int>& get_user_regs_struct(uc_arch arch, uc_mode mode);
+void print_cpu_state(Vm& vm);
 
 }
 
