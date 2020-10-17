@@ -59,7 +59,7 @@ public:
     void add_page(std::uint64_t address, std::size_t size, int prot);
 
     // Allocates a new page and fill it with given data
-    void add_page(std::uint64_t address, std::size_t size, int prot, void* data);
+    void add_page(std::uint64_t address, std::size_t size, int prot, const void* data);
 
     // Reset the Mmu state to the one in other. The function will throw an
     // exception if the pages addresses and sizes are not matching, meaning you
@@ -120,7 +120,7 @@ public:
 
 private:
     bool write_internal_(std::uint64_t address, const void* buffer, std::size_t size, bool dirty);
-    void add_page_internal_(std::uint64_t address, std::size_t size, int prot, void* data = nullptr);
+    void add_page_internal_(std::uint64_t address, std::size_t size, int prot, const void* data = nullptr);
 
     // Checks whether a range overlaps with a page
     bool range_overlap_page_(std::uint64_t address, std::size_t size);

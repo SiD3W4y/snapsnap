@@ -86,12 +86,12 @@ void Mmu::add_page(std::uint64_t address, std::size_t size, int prot)
     add_page_internal_(address, size, prot);
 }
 
-void Mmu::add_page(std::uint64_t address, std::size_t size, int prot, void* data)
+void Mmu::add_page(std::uint64_t address, std::size_t size, int prot, const void* data)
 {
     add_page_internal_(address, size, prot, data);
 }
 
-void Mmu::add_page_internal_(std::uint64_t address, std::size_t size, int prot, void* data)
+void Mmu::add_page_internal_(std::uint64_t address, std::size_t size, int prot, const void* data)
 {
     if (address & (page_size_ - 1))
         throw std::runtime_error("Address not page aligned");
@@ -99,7 +99,7 @@ void Mmu::add_page_internal_(std::uint64_t address, std::size_t size, int prot, 
     if (size & (page_size_ - 1))
         throw std::runtime_error("Size not page aligned");
 
-    std::uint8_t* data_ptr = reinterpret_cast<std::uint8_t*>(data);
+    const std::uint8_t* data_ptr = reinterpret_cast<const std::uint8_t*>(data);
 
     while (size > 0)
     {
