@@ -2,6 +2,8 @@
 #define MMU_HH
 
 #include <vector>
+#include <set>
+#include <map>
 #include <cstdint>
 
 namespace ssnap
@@ -43,7 +45,8 @@ struct MemoryPage
 class Mmu
 {
 public:
-    Mmu(std::uint64_t page_size = 0x1000);
+    Mmu() = default;
+    Mmu(std::uint64_t page_size);
 
     Mmu(Mmu&& other);
     Mmu& operator=(Mmu&& other);
@@ -62,8 +65,11 @@ public:
     // can only reset from an Mmu that has the same set of pages as you.
     void reset(const Mmu& other);
 
-    // Clears the dirty bits
+    // Clears the dirty status of all pages
     void clear_dirty();
+
+    // Mark a page containing an address dirty
+    void mark_dirty(std::uint64_t address);
 
     // Write data into memory without affecting the dirty bits and without
     // checking for page permissions. This function can be used to setup
@@ -101,12 +107,14 @@ public:
 
 private:
     bool write_internal_(std::uint64_t address, const void* buffer, std::size_t size, bool dirty);
+    void add_page_internal_(std::uint64_t address, std::size_t size, int prot, void* data = nullptr);
 
     // Checks whether a range overlaps with a page
     bool range_overlap_page_(std::uint64_t address, std::size_t size);
 
-    std::uint64_t page_size_;
-    std::vector<MemoryPage> pages_;
+    std::uint64_t page_size_ = 0x1000;
+    std::map<std::uint64_t, MemoryPage> pages_;
+    std::set<std::uint64_t> dirty_pages_;
 };
 
 }

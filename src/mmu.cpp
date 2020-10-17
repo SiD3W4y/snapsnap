@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <cstring>
+#include "fmt/core.h"
 #include "snapsnap/mmu.hh"
 
 namespace ssnap
@@ -21,6 +22,7 @@ MemoryPage& MemoryPage::operator=(MemoryPage&& other)
 
     data = other.data;
     size = other.size;
+    prot = other.prot;
     address = other.address;
     other.data = nullptr;
 
@@ -79,67 +81,47 @@ Mmu& Mmu::operator=(const Mmu& other)
     return *this;
 }
 
-bool Mmu::range_overlap_page_(std::uint64_t address, std::size_t size)
-{
-    std::uint64_t left_bound = address;
-    std::uint64_t right_bound = address + size;
-
-    for (auto& page : pages_)
-    {
-        // [ L ] R
-        if (left_bound >= page.address && left_bound < (page.address + page.size))
-            return true;
-
-        // L [ R ]
-        if (right_bound >= page.address && right_bound < (page.address + page.size))
-            return true;
-
-        // L [ ] R
-        if (left_bound <= page.address && right_bound >= (page.address + page.size))
-            return true;
-    }
-
-    return false;
-}
-
 void Mmu::add_page(std::uint64_t address, std::size_t size, int prot)
 {
-    if (address & (page_size_ - 1))
-        throw std::runtime_error("Address not page aligned");
-
-    if (size & (page_size_ - 1))
-        throw std::runtime_error("Address not page aligned");
-
-    if (range_overlap_page_(address, size))
-        throw std::runtime_error("Pages overlap");
-
-    std::uint8_t* data = new std::uint8_t[size];
-    std::memset(data, 0, size);
-    pages_.emplace_back(address, data, size, prot);
-
-    std::sort(pages_.begin(), pages_.end(), [](MemoryPage& a, MemoryPage& b) {
-            return a.address < b.address;
-    });
+    add_page_internal_(address, size, prot);
 }
 
 void Mmu::add_page(std::uint64_t address, std::size_t size, int prot, void* data)
 {
+    add_page_internal_(address, size, prot, data);
+}
+
+void Mmu::add_page_internal_(std::uint64_t address, std::size_t size, int prot, void* data)
+{
     if (address & (page_size_ - 1))
         throw std::runtime_error("Address not page aligned");
 
     if (size & (page_size_ - 1))
-        throw std::runtime_error("Address not page aligned");
+        throw std::runtime_error("Size not page aligned");
 
-    if (range_overlap_page_(address, size))
-        throw std::runtime_error("Pages overlap");
+    std::uint8_t* data_ptr = reinterpret_cast<std::uint8_t*>(data);
 
-    std::uint8_t* page_data = new std::uint8_t[size];
-    std::memcpy(page_data, data, size);
-    pages_.emplace_back(address, page_data, size, prot);
+    while (size > 0)
+    {
+        auto it = pages_.find(address);
 
-    std::sort(pages_.begin(), pages_.end(), [](MemoryPage& a, MemoryPage& b) {
-            return a.address < b.address;
-    });
+        if (it != pages_.end())
+            throw std::runtime_error(fmt::format("Current page allocation overlaps with page at 0x{:x}", address));
+
+        std::uint8_t* page_data = new std::uint8_t[page_size_];
+
+        if (data)
+            std::memcpy(page_data, data_ptr, page_size_);
+        else
+            std::memset(page_data, 0, page_size_);
+
+        MemoryPage page(address, page_data, page_size_, prot);
+        pages_.emplace(address, std::move(page));
+
+        address += page_size_;
+        data_ptr += page_size_;
+        size -= page_size_;
+    }
 }
 
 void Mmu::reset(const Mmu& other)
@@ -148,12 +130,21 @@ void Mmu::reset(const Mmu& other)
     if (pages_.size() != other.pages_.size())
         throw std::runtime_error("Different number of pages");
 
-    for (std::size_t i = 0; i < pages_.size(); i++)
+    for (std::uint64_t dirty_page : dirty_pages_)
     {
-        auto& dst = pages_[i];
-        auto& src = other.pages_[i];
+        auto dst_it = pages_.find(dirty_page);
+        auto src_it = other.pages_.find(dirty_page);
 
-        if (dst.address != src.size)
+        if (dst_it == pages_.end())
+            throw std::runtime_error(fmt::format("Page 0x{:x} not found in current mmu", dirty_page));
+
+        if (src_it == other.pages_.end())
+            throw std::runtime_error(fmt::format("Page 0x{:x} not found in original mmu", dirty_page));
+
+        auto& dst = dst_it->second;
+        auto& src = src_it->second;
+
+        if (dst.address != src.address)
             throw std::runtime_error("Page address mismatch");
 
         if (dst.size != src.size)
@@ -162,19 +153,10 @@ void Mmu::reset(const Mmu& other)
         if (dst.prot != src.prot)
             throw std::runtime_error("Page permissions mismatch");
 
-        // If the page is non writable we skip it
-        // TODO: Maybe provide an option to restore non-writable pages ?
-        if (!(dst.prot & MemoryProtection::Write) || !dst.dirty)
-            continue;
-
         std::memcpy(dst.data, src.data, src.size);
     }
-}
 
-void Mmu::clear_dirty()
-{
-    for (MemoryPage& page : pages_)
-        page.dirty = false;
+    dirty_pages_.clear();
 }
 
 bool Mmu::write_raw(std::uint64_t address, const void* buffer, std::size_t size)
@@ -189,10 +171,8 @@ bool Mmu::write(std::uint64_t address, const void* buffer, std::size_t size)
 
 bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
 {
-    // XXX: This is a linear search, use a better algorithm if it becomes a bottleneck
-    auto it = std::find_if(pages_.begin(), pages_.end(), [address](MemoryPage& p) {
-            return address >= p.address && address < (p.address + p.size);
-    });
+    address &= ~(page_size_ - 1);
+    auto it = pages_.find(address);
 
     if (it == pages_.end())
         return false;
@@ -201,14 +181,16 @@ bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
 
     while (size > 0 && it != pages_.end())
     {
-        if (address < it->address || address >= (it->address + it->size))
+        auto& page = it->second;
+
+        if (address < page.address || address >= (page.address + page.size))
             return false;
 
-        std::size_t offset_in_page = address - it->address;
-        std::size_t bytes_to_eop = (it->address + it->size) - address;
+        std::size_t offset_in_page = address - page.address;
+        std::size_t bytes_to_eop = (page.address + page.size) - address;
         std::size_t bytes_read = std::min(size, bytes_to_eop);
 
-        std::memcpy(data_ptr, it->data + offset_in_page, bytes_read);
+        std::memcpy(data_ptr, page.data + offset_in_page, bytes_read);
 
         data_ptr += bytes_read;
         address += bytes_read;
@@ -224,10 +206,8 @@ bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
 
 bool Mmu::write_internal_(std::uint64_t address, const void* buffer, std::size_t size, bool dirty)
 {
-    // XXX: This is a linear search, use a better algorithm if it becomes a bottleneck
-    auto it = std::find_if(pages_.begin(), pages_.end(), [address](MemoryPage& p) {
-            return address >= p.address && address < (p.address + p.size);
-    });
+    address &= ~(page_size_ - 1);
+    auto it = pages_.find(address);
 
     if (it == pages_.end())
         return false;
@@ -236,17 +216,16 @@ bool Mmu::write_internal_(std::uint64_t address, const void* buffer, std::size_t
 
     while (size > 0 && it != pages_.end())
     {
-        if (address < it->address || address >= (it->address + it->size))
+        auto& page = it->second;
+
+        if (address < page.address || address >= (page.address + page.size))
             return false;
 
-        if (dirty)
-            it->dirty = true;
-
-        std::size_t offset_in_page = address - it->address;
-        std::size_t bytes_to_eop = (it->address + it->size) - address;
+        std::size_t offset_in_page = address - page.address;
+        std::size_t bytes_to_eop = (page.address + page.size) - address;
         std::size_t bytes_written = std::min(size, bytes_to_eop);
 
-        std::memcpy(it->data + offset_in_page, data_ptr, bytes_written);
+        std::memcpy(page.data + offset_in_page, data_ptr, bytes_written);
 
         data_ptr += bytes_written;
         address += bytes_written;
@@ -258,6 +237,17 @@ bool Mmu::write_internal_(std::uint64_t address, const void* buffer, std::size_t
         return false;
 
     return true;
+}
+
+void Mmu::clear_dirty()
+{
+    dirty_pages_.clear();
+}
+
+void Mmu::mark_dirty(std::uint64_t address)
+{
+    address &= ~(page_size_ - 1);
+    dirty_pages_.insert(address);
 }
 
 }
