@@ -26,7 +26,8 @@ unicorn_dep = declare_dependency(
 snapsnap_sources = [
   'src/vm.cpp',
   'src/mmu.cpp',
-  'src/loader_coredump.cpp'
+  'src/loader_coredump.cpp',
+  'src/utility_user_regs.cpp'
 ]
 
 snapsnap_headers = include_directories('include')

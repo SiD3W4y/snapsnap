@@ -38,6 +38,16 @@ public:
     // Saves the state of the registers to the context.
     void save_cpu_context();
 
+    uc_arch arch() const
+    {
+        return arch_;
+    }
+
+    uc_mode mode() const
+    {
+        return mode_;
+    }
+
 private:
     bool address_mapped_(std::uint64_t address) const;
 
