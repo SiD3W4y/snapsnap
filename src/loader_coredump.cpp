@@ -155,7 +155,7 @@ void load_regs(Elf* elf, Vm& vm)
 
 }
 
-Vm load_coredump(std::string path, uc_arch arch, uc_mode mode)
+Vm from_coredump(std::string path, uc_arch arch, uc_mode mode)
 {
     int fd = open(path.c_str(), O_RDONLY, 0);
 
