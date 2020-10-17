@@ -4,6 +4,7 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <optional>
 #include <cstdint>
 
 namespace ssnap
@@ -88,7 +89,19 @@ public:
     // Returns true if the read succeeded.
     bool read(std::uint64_t address, void* buffer, std::size_t size);
 
-    std::uint64_t page_size()
+    // Returns the page containing the requested address or nullptr if not found.
+    const MemoryPage* get_page(std::uint64_t address)
+    {
+        address &= ~(page_size_ - 1);
+        auto it = pages_.find(address);
+
+        if (it == pages_.end())
+            return nullptr;
+
+        return &it->second;
+    }
+
+    std::uint64_t page_size() const
     {
         return page_size_;
     }
