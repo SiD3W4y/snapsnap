@@ -1,6 +1,7 @@
 #ifndef VM_HH
 #define VM_HH
 
+#include <set>
 #include "unicorn/unicorn.h"
 #include "snapsnap/mmu.hh"
 
@@ -26,18 +27,27 @@ public:
     bool write(std::uint64_t address, const void* buffer, std::size_t size);
     bool read(std::uint64_t address, void* buffer, std::size_t size);
 
+    // Maps a range of pages into unicorn memory.
+    //
+    // Returns true on success.
+    bool map_range(std::uint64_t address, std::size_t size);
+
     std::uint64_t get_register(int regid);
     void set_register(int regid, std::uint64_t value);
 
+    // Saves the state of the registers to the context.
+    void save_cpu_context();
+
 private:
-    // Maps the mmu memory into unicorn
-    void map_mmu_unicorn_();
+    bool address_mapped_(std::uint64_t address) const;
 
     Mmu mmu_;
     uc_engine* uc_ = nullptr;
     uc_arch arch_;
     uc_mode mode_;
     uc_context* cpu_context_ = nullptr;
+    std::set<std::uint64_t> mapped_pages_;
+    std::vector<uc_hook> hooks_;
 };
 
 }
