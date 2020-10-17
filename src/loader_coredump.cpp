@@ -114,8 +114,6 @@ void load_regs(Elf* elf, Vm& vm)
         std::size_t name_size_pad = align_size(note->n_namesz, 4);
         std::size_t desc_size_pad = align_size(note->n_descsz, 4);
 
-        const char* name = notes_base + idx + sizeof(*note);
-
         if (note->n_type == NT_PRSTATUS)
         {
             std::size_t desc_off = idx + sizeof(*note) + name_size_pad + sizeof(elf_prstatus);
@@ -132,13 +130,25 @@ void load_regs(Elf* elf, Vm& vm)
         throw std::runtime_error("Could not find registers");
 
     auto& regs_ids = ssnap::utility::get_user_regs_struct(vm.arch(), vm.mode());
+    std::uint64_t fsbase = 0;
+    std::uint64_t gsbase = 0;
 
     for (auto id : regs_ids)
     {
-        vm.set_register(id, *regs_base);
+        if (id == UC_X86_REG_FS_BASE)
+            fsbase = *regs_base;
+        else if (id == UC_X86_REG_GS_BASE)
+            gsbase = *regs_base;
+        else
+            vm.set_register(id, *regs_base);
         regs_base++;
 
     }
+
+    // For some obscure reason, setting fs_base and gs_base before fs and gs is
+    // a noop in unicorn. We have to remember their values and set them afterwards.
+    vm.set_register(UC_X86_REG_FS_BASE, fsbase);
+    vm.set_register(UC_X86_REG_GS_BASE, gsbase);
 
     vm.save_cpu_context();
 }
