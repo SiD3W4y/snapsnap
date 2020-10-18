@@ -76,11 +76,18 @@ Vm::~Vm()
     if (cpu_context_)
         uc_free(cpu_context_);
 
-    for (uc_hook hook : hooks_)
-        uc_hook_del(uc_, hook);
-
     if (uc_)
         uc_close(uc_);
+
+    // Destroy lambda hooks
+    for (auto hook : code_hooks_)
+        delete hook;
+
+    for (auto hook : mem_hooks_)
+        delete hook;
+
+    for (auto hook : unmap_hooks_)
+        delete hook;
 }
 
 void Vm::reset(const Vm& original)
@@ -166,5 +173,129 @@ bool Vm::map_range(std::uint64_t address, std::size_t size)
     return true;
 }
 
+void Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t size)
+{
+    std::uint64_t start_address = get_register(UC_X86_REG_RIP);
+    uc_err err = uc_emu_start(uc_, start_address, target, timeout, size);
+}
+
+// Setting up the plumbing for unicorn hooks
+namespace
+{
+
+void unicorn_code_hook(uc_engine* uc, std::uint64_t address, std::uint32_t size, void* user_data)
+{
+    Vm::CodeHookTpl& hook = reinterpret_cast<Vm::CodeHookTpl&>(user_data);
+    hook(address, size);
+}
+
+bool unicorn_unmap_hook(uc_engine* uc, uc_mem_type type, std::uint64_t address, int size, std::int64_t value,
+        void* user_data)
+{
+    Vm::MemUnmapTpl* hook = reinterpret_cast<Vm::MemUnmapTpl*>(user_data);
+    return (*hook)(address, size, value);
+}
+
+}
+
+void Vm::add_code_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
+{
+    uc_hook unicorn_hook;
+
+    auto cb = new CodeHookTpl([this, hook](std::uint64_t address, std::uint32_t size){
+        hook(*this, address, size);
+    });
+
+    code_hooks_.push_back(cb);
+
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_CODE,
+            reinterpret_cast<void*>(&unicorn_code_hook),
+            reinterpret_cast<void*>(cb), begin, end);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("add_code_hook: {}", uc_strerror(err)));
+
+    hooks_.push_back(unicorn_hook);
+}
+
+void Vm::add_block_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
+{
+    uc_hook unicorn_hook;
+
+    auto cb = new CodeHookTpl([this, hook](std::uint64_t address, std::uint32_t size){
+        hook(*this, address, size);
+    });
+
+    code_hooks_.push_back(cb);
+
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_BLOCK,
+            reinterpret_cast<void*>(&unicorn_code_hook),
+            reinterpret_cast<void*>(cb), begin, end);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("add_block_hook: {}", uc_strerror(err)));
+
+    hooks_.push_back(unicorn_hook);
+}
+
+void Vm::add_read_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
+{
+    uc_hook unicorn_hook;
+
+    auto cb = new MemOpTpl([this, hook](std::uint64_t address, int size, std::int64_t value){
+        hook(*this, address, size, value);
+    });
+
+    mem_hooks_.push_back(cb);
+
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_MEM_READ,
+            reinterpret_cast<void*>(&unicorn_code_hook),
+            reinterpret_cast<void*>(cb), begin, end);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("add_read_hook: {}", uc_strerror(err)));
+
+    hooks_.push_back(unicorn_hook);
+}
+
+void Vm::add_write_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
+{
+    uc_hook unicorn_hook;
+
+    auto cb = new MemOpTpl([this, hook](std::uint64_t address, int size, std::int64_t value){
+        hook(*this, address, size, value);
+    });
+
+    mem_hooks_.push_back(cb);
+
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_MEM_WRITE,
+            reinterpret_cast<void*>(&unicorn_code_hook),
+            reinterpret_cast<void*>(cb), begin, end);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("add_write_hook: {}", uc_strerror(err)));
+
+    hooks_.push_back(unicorn_hook);
+}
+
+void Vm::add_unmapped_hook(MemUnmapHook hook, std::uint64_t begin, std::uint64_t end)
+{
+    uc_hook unicorn_hook;
+
+    auto cb = new MemUnmapTpl([this, hook](std::uint64_t address, int size, std::int64_t value) -> bool {
+        return hook(*this, address, size, value);
+    });
+
+    unmap_hooks_.push_back(cb);
+
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_MEM_UNMAPPED,
+            reinterpret_cast<void*>(&unicorn_unmap_hook),
+            reinterpret_cast<void*>(cb), begin, end);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("add_unmap_hook: {}", uc_strerror(err)));
+
+    hooks_.push_back(unicorn_hook);
+}
 
 }
