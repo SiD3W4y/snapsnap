@@ -68,10 +68,29 @@ Mmu load_pages(Elf* elf)
             continue;
         }
 
-        m.add_page(phdr->p_vaddr, phdr->p_memsz, 7, elf_base + phdr->p_offset);
+        int prot = 0;
+        char prot_str[4] = {'-', '-', '-', 0};
 
-        fmt::print("[COREDUMP] Loading segment [addr=0x{:x} size=0x{:x}]\n", phdr->p_vaddr,
-                phdr->p_memsz);
+        if (phdr->p_flags & 1)
+        {
+            prot |= MemoryProtection::Execute;
+            prot_str[2] = 'x';
+        }
+        if (phdr->p_flags & 2)
+        {
+            prot |= MemoryProtection::Write;
+            prot_str[1] = 'w';
+        }
+        if (phdr->p_flags & 4)
+        {
+            prot |= MemoryProtection::Read;
+            prot_str[0] = 'r';
+        }
+
+        m.add_page(phdr->p_vaddr, phdr->p_memsz, prot, elf_base + phdr->p_offset);
+
+        fmt::print("[COREDUMP] Loading segment [addr=0x{:x} size=0x{:x} perms={}]\n", phdr->p_vaddr,
+                phdr->p_memsz, prot_str);
 
         phdr++;
     }
