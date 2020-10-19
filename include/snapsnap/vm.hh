@@ -10,6 +10,34 @@
 namespace ssnap
 {
 
+enum class VmExitStatus
+{
+    Ok,
+    Timeout,
+};
+
+/**
+ * Represents the status of the vm at exit with additional information if a
+ * problem was encountered.
+ */
+struct VmExit
+{
+    /**
+     * Vm status at program exit.
+     */
+    VmExitStatus status = VmExitStatus::Ok;
+
+    /**
+     * pc where a fault occured.
+     */
+    std::uint64_t pc = 0;
+
+    /**
+     * Address pointed to if a fault occured during a read/write)
+     */
+    std::uint64_t address = 0;
+};
+
 class Vm
 {
 public:
@@ -17,8 +45,6 @@ public:
     using CodeHookTpl = std::function<void(std::uint64_t, std::uint32_t size)>;
     using MemOpHook = std::function<void(Vm&, std::uint64_t, int, std::int64_t)>;
     using MemOpTpl = std::function<void(std::uint64_t, int, std::int64_t)>;
-    using MemUnmapHook = std::function<bool(Vm&, std::uint64_t, int, std::int64_t)>;
-    using MemUnmapTpl = std::function<bool(std::uint64_t, int, std::uint64_t)>;
 
     Vm(uc_arch arch, uc_mode mode, Mmu&& mmu);
     Vm(const Vm& other);
@@ -41,7 +67,6 @@ public:
     void add_block_hook(CodeHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
     void add_read_hook(MemOpHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
     void add_write_hook(MemOpHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
-    void add_unmapped_hook(MemUnmapHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
 
     void run(std::uint64_t target, std::uint64_t timeout = 0, std::size_t count = 0);
 
@@ -49,6 +74,11 @@ public:
     //
     // Returns true on success.
     bool map_range(std::uint64_t address, std::size_t size);
+    bool address_mapped(std::uint64_t address) const;
+
+    // Called when an address is not mapped. Stops the emulation and sets VmExit
+    // status accordingly on error.
+    bool handle_pagefault_(std::uint64_t address, std::size_t size);
 
     std::uint64_t get_register(int regid);
     void set_register(int regid, std::uint64_t value);
@@ -66,12 +96,16 @@ public:
         return mode_;
     }
 
+    VmExit status() const
+    {
+        return exit_status_;
+    }
+
 private:
-
-
-    bool address_mapped_(std::uint64_t address) const;
+    void install_internal_hooks_();
 
     Mmu mmu_;
+    VmExit exit_status_;
     uc_engine* uc_ = nullptr;
     uc_arch arch_;
     uc_mode mode_;
@@ -82,7 +116,6 @@ private:
     std::vector<uc_hook> hooks_;
     std::vector<CodeHookTpl*> code_hooks_;
     std::vector<MemOpTpl*> mem_hooks_;
-    std::vector<MemUnmapTpl*> unmap_hooks_;
 };
 
 }
