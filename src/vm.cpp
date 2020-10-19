@@ -130,6 +130,7 @@ void Vm::reset(const Vm& original)
     // set of page address written to.
     mmu_.reset(original.mmu_);
     uc_context_save(original.uc_, cpu_context_);
+    uc_context_restore(uc_, cpu_context_);
 }
 
 /** \brief Writes data into Vm memory
