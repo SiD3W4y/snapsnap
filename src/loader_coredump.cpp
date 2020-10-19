@@ -182,7 +182,7 @@ Vm from_coredump(std::string path, uc_arch arch, uc_mode mode)
         throw std::runtime_error("Could not open core file");
 
     elf_version(EV_CURRENT);
-    Elf* elf = elf_begin(fd, ELF_C_READ, NULL);
+    Elf* elf = elf_begin(fd, ELF_C_READ_MMAP_PRIVATE, NULL);
 
     if (!elf)
         throw std::runtime_error(fmt::format("Could not parse elf: {}", elf_errmsg(elf_errno())));
