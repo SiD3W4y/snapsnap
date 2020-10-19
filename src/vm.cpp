@@ -7,6 +7,18 @@
 namespace ssnap
 {
 
+namespace
+{
+
+bool unmapped_cb_(uc_engine* uc, uc_mem_type type, std::uint64_t address, int size,
+        std::int64_t value, Vm* vm)
+{
+    fmt::print("[UNMAPPED_HOOK] Address: 0x{:x} size: {}\n", address, size);
+    return vm->map_range(address, size);
+}
+
+}
+
 Vm::Vm(uc_arch arch, uc_mode mode, Mmu&& mmu)
     : mmu_(std::move(mmu)), arch_(arch), mode_(mode)
 {
@@ -22,6 +34,7 @@ Vm::Vm(uc_arch arch, uc_mode mode, Mmu&& mmu)
 
     // Save the initial context
     uc_context_save(uc_, cpu_context_);
+    install_internal_hooks_();
 }
 
 Vm& Vm::operator=(const Vm& other)
@@ -42,6 +55,8 @@ Vm& Vm::operator=(const Vm& other)
         throw std::runtime_error(uc_strerror(err));
 
     uc_context_save(other.uc_, cpu_context_);
+    uc_context_restore(uc_, cpu_context_);
+    install_internal_hooks_();
 
     return *this;
 }
@@ -51,14 +66,31 @@ Vm::Vm(const Vm& other)
     *this = other;
 }
 
+/** \brief Move construct a Vm instance.
+ *
+ * Due to the way the hooks are implemented they cannot be moved or copied thus
+ * a new instance of unicorn is created on move construction.
+ */
 Vm& Vm::operator=(Vm&& other)
 {
     arch_ = other.arch_;
     mode_ = other.mode_;
     mmu_ = std::move(other.mmu_);
-    mapped_pages_ = std::move(other.mapped_pages_);
-    uc_ = other.uc_;
+    mapped_pages_ = {};
+
+    if (uc_)
+        uc_close(uc_);
+
+    uc_err err = uc_open(other.arch(), other.mode(), &uc_);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error("Could not create new unicorn instance");
+
     cpu_context_ = other.cpu_context_;
+    uc_context_restore(uc_, cpu_context_);
+    install_internal_hooks_();
+
+    uc_close(other.uc_);
 
     other.uc_ = nullptr;
     other.cpu_context_ = nullptr;
@@ -85,11 +117,13 @@ Vm::~Vm()
 
     for (auto hook : mem_hooks_)
         delete hook;
-
-    for (auto hook : unmap_hooks_)
-        delete hook;
 }
 
+/** \brief Resets the state of the vm.
+ *
+ * Resets the cpu state and the mmu state of the current vm according to a
+ * reference Vm.
+ */
 void Vm::reset(const Vm& original)
 {
     // TODO: Add code to iterate Mmu pages and mark them dirty according to the
@@ -98,21 +132,33 @@ void Vm::reset(const Vm& original)
     uc_context_save(original.uc_, cpu_context_);
 }
 
+/** \brief Writes data into Vm memory
+ *
+ * Writes data into vm memory and don't mark the memory as dirty.
+ */
 bool Vm::write_raw(std::uint64_t address, const void* buffer, std::size_t size)
 {
     return mmu_.write_raw(address, buffer, size);
 }
 
+/** \brief Writes data into Vm memory.
+ *
+ * Writes data into vm memory and marks the memory as dirty.
+ */
 bool Vm::write(std::uint64_t address, const void* buffer, std::size_t size)
 {
     return mmu_.write_raw(address, buffer, size);
 }
 
+/** \brief Reads Vm memory into a buffer.
+ */
 bool Vm::read(std::uint64_t address, void* buffer, std::size_t size)
 {
     return mmu_.read(address, buffer, size);
 }
 
+/** \brief Returns the value of a register.
+ */
 std::uint64_t Vm::get_register(int regid)
 {
     std::uint64_t value;
@@ -124,6 +170,8 @@ std::uint64_t Vm::get_register(int regid)
     return value;
 }
 
+/** \brief Sets the value of a vm register.
+ */
 void Vm::set_register(int regid, std::uint64_t value)
 {
     uc_err err = uc_reg_write(uc_, regid, &value);
@@ -132,12 +180,16 @@ void Vm::set_register(int regid, std::uint64_t value)
         throw std::runtime_error(fmt::format("set_register: {}", uc_strerror(err)));
 }
 
+/** \brief Saves the current unicorn context.
+ *
+ * Freezes the current cpu context to internal storage.
+ */
 void Vm::save_cpu_context()
 {
     uc_context_save(uc_, cpu_context_);
 }
 
-bool Vm::address_mapped_(std::uint64_t address) const
+bool Vm::address_mapped(std::uint64_t address) const
 {
     address &= ~(mmu_.page_size() - 1);
     auto it = mapped_pages_.find(address);
@@ -145,26 +197,35 @@ bool Vm::address_mapped_(std::uint64_t address) const
     return it != mapped_pages_.end();
 }
 
+/** \brief Maps a range of addresses.
+ *
+ * Maps a range of addresses from the mmu to unicorn. Returns whether all pages
+ * were mapped or not.
+ */
 bool Vm::map_range(std::uint64_t address, std::size_t size)
 {
     while (size > 0)
     {
         const MemoryPage* page = mmu_.get_page(address);
+        bool page_mapped = mapped_pages_.find(address) != mapped_pages_.end();
+        std::size_t bytes_to_eop = (page->address + page->size) - address;
+        std::size_t next_off = std::min(size, bytes_to_eop);
 
         if (!page)
             return false;
 
-        uc_err err = uc_mem_map_ptr(uc_, page->address, page->size, page->prot, page->data);
+        if (!page_mapped)
+        {
+            uc_err err = uc_mem_map_ptr(uc_, page->address, page->size, page->prot, page->data);
 
-        if (err != UC_ERR_OK)
-            throw std::runtime_error(fmt::format("map_page: {}", uc_strerror(err)));
+            if (err != UC_ERR_OK)
+                throw std::runtime_error(fmt::format("map_page: {}", uc_strerror(err)));
 
-        // fmt::print("[VM] Lazy mapping [address=0x{:x}, size=0x{:x}, prot={}]\n",
-        //        page->address, page->size, page->prot);
+            fmt::print("[VM] Lazy mapping [address=0x{:x}, size=0x{:x}, prot={}]\n",
+                   page->address, page->size, page->prot);
 
-        std::size_t bytes_to_eop = (page->address + page->size) - address;
-        std::size_t next_off = std::min(size, bytes_to_eop);
-        mapped_pages_.insert(page->address);
+            mapped_pages_.insert(page->address);
+        }
 
         size -= next_off;
         address += next_off;
@@ -173,10 +234,17 @@ bool Vm::map_range(std::uint64_t address, std::size_t size)
     return true;
 }
 
-void Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t size)
+/** \brief Starts the emulation from the current pc.
+ *
+ * Starts the emulation starting from pc and until target. Optionally a timeout
+ * and a limit count of instructions can be given.
+ */
+void Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
 {
     std::uint64_t start_address = get_register(UC_X86_REG_RIP);
-    uc_err err = uc_emu_start(uc_, start_address, target, timeout, size);
+    uc_err err = uc_emu_start(uc_, start_address, target, timeout, count);
+
+    fmt::print("vm run error: {}\n", uc_strerror(err));
 }
 
 // Setting up the plumbing for unicorn hooks
@@ -185,19 +253,17 @@ namespace
 
 void unicorn_code_hook(uc_engine* uc, std::uint64_t address, std::uint32_t size, void* user_data)
 {
-    Vm::CodeHookTpl& hook = reinterpret_cast<Vm::CodeHookTpl&>(user_data);
-    hook(address, size);
-}
-
-bool unicorn_unmap_hook(uc_engine* uc, uc_mem_type type, std::uint64_t address, int size, std::int64_t value,
-        void* user_data)
-{
-    Vm::MemUnmapTpl* hook = reinterpret_cast<Vm::MemUnmapTpl*>(user_data);
-    return (*hook)(address, size, value);
+    Vm::CodeHookTpl* hook = reinterpret_cast<Vm::CodeHookTpl*>(user_data);
+    hook->operator()(address, size);
 }
 
 }
 
+/** \brief Registers a vm instruction hook.
+ *
+ * Registers a hook that will be executed on every instruction. Optionally a
+ * range can be supplied.
+ */
 void Vm::add_code_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
 {
     uc_hook unicorn_hook;
@@ -218,6 +284,11 @@ void Vm::add_code_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
     hooks_.push_back(unicorn_hook);
 }
 
+/** \brief Registers a vm basic block hook.
+ *
+ * Registers a hook that will be executed on every basic block. Optionally a
+ * range can be supplied.
+ */
 void Vm::add_block_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
 {
     uc_hook unicorn_hook;
@@ -238,6 +309,11 @@ void Vm::add_block_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
     hooks_.push_back(unicorn_hook);
 }
 
+/** \brief Registers a read hook.
+ *
+ * Registers a vm hook that will be executed on every read operation. Optionally
+ * a range can be supplied.
+ */
 void Vm::add_read_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 {
     uc_hook unicorn_hook;
@@ -258,6 +334,11 @@ void Vm::add_read_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
     hooks_.push_back(unicorn_hook);
 }
 
+/** \brief Registers a write hook.
+ *
+ * Registers a vm hook that will be executed on every write operation. Optionally
+ * a range can be supplied.
+ */
 void Vm::add_write_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 {
     uc_hook unicorn_hook;
@@ -278,24 +359,17 @@ void Vm::add_write_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
     hooks_.push_back(unicorn_hook);
 }
 
-void Vm::add_unmapped_hook(MemUnmapHook hook, std::uint64_t begin, std::uint64_t end)
+void Vm::install_internal_hooks_()
 {
-    uc_hook unicorn_hook;
+    // Install mem unmapped hook
+    uc_hook unmapped_hook;
 
-    auto cb = new MemUnmapTpl([this, hook](std::uint64_t address, int size, std::int64_t value) -> bool {
-        return hook(*this, address, size, value);
-    });
-
-    unmap_hooks_.push_back(cb);
-
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_MEM_UNMAPPED,
-            reinterpret_cast<void*>(&unicorn_unmap_hook),
-            reinterpret_cast<void*>(cb), begin, end);
+    uc_err err = uc_hook_add(uc_, &unmapped_hook, UC_HOOK_MEM_UNMAPPED,
+            reinterpret_cast<void*>(&unmapped_cb_),
+            reinterpret_cast<void*>(this), 1, 0);
 
     if (err != UC_ERR_OK)
-        throw std::runtime_error(fmt::format("add_unmap_hook: {}", uc_strerror(err)));
-
-    hooks_.push_back(unicorn_hook);
+        throw std::runtime_error(fmt::format("unmap_hook_add: {}", uc_strerror(err)));
 }
 
 }
