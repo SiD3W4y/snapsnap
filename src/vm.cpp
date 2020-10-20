@@ -240,12 +240,46 @@ bool Vm::map_range(std::uint64_t address, std::size_t size)
  * Starts the emulation starting from pc and until target. Optionally a timeout
  * and a limit count of instructions can be given.
  */
-void Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
+VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
 {
+    VmExit exit_status;
+    exit_status.status = VmExitStatus::Ok;
+    exit_status.pc = 0;
+
     std::uint64_t start_address = get_register(UC_X86_REG_RIP);
     uc_err err = uc_emu_start(uc_, start_address, target, timeout, count);
 
-    fmt::print("vm run error: {}\n", uc_strerror(err));
+    exit_status.pc = get_register(UC_X86_REG_RIP);
+
+    switch (err)
+    {
+    case UC_ERR_READ_UNMAPPED:
+    case UC_ERR_WRITE_UNMAPPED:
+    case UC_ERR_FETCH_UNMAPPED:
+        exit_status.status = VmExitStatus::MemoryUnmapped;
+        break;
+    case UC_ERR_READ_PROT:
+    case UC_ERR_WRITE_PROT:
+    case UC_ERR_FETCH_PROT:
+        exit_status.status = VmExitStatus::MemoryProtection;
+    case UC_ERR_INSN_INVALID:
+        exit_status.status = VmExitStatus::InvalidInstruction;
+    case UC_ERR_OK:
+        exit_status.status = VmExitStatus::Ok;
+        break;
+    default:
+        exit_status.status = VmExitStatus::Unknown;
+    }
+
+    std::size_t is_timeout = 0;
+
+    // XXX: Maybe do error checking
+    uc_query(uc_, UC_QUERY_TIMEOUT, &is_timeout);
+
+    if (is_timeout || exit_status.pc != target)
+        exit_status.status = VmExitStatus::Timeout;
+
+    return exit_status;
 }
 
 // Setting up the plumbing for unicorn hooks

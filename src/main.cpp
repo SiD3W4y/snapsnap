@@ -5,17 +5,15 @@
 int main(int argc, char** argv)
 {
     ssnap::Vm vm = ssnap::loader::from_coredump("core.7635", UC_ARCH_X86, UC_MODE_64);
-    ssnap::utility::print_cpu_state(vm);
+    ssnap::Vm copy = vm;
 
-    int local_var = 42;
+    copy.add_block_hook([](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
+            fmt::print("Basic block: 0x{:x}\n", address);
+    });
 
-    auto hook = [&local_var](ssnap::Vm& vm, std::uint64_t address, int size, std::int64_t value) -> bool {
-        fmt::print("Hook called !! (local var: {})\n", local_var);
-        return false;
-    };
+    ssnap::VmExit exit = vm.run(0x7ffff7df2070, 0, 2);
 
-    vm.add_unmapped_hook(hook);
-    vm.run(0);
+    fmt::print("VmExit code: {}, pc: 0x{:x}\n", exit.status, exit.pc);
 
     return 0;
 }

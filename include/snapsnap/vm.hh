@@ -14,6 +14,10 @@ enum class VmExitStatus
 {
     Ok,
     Timeout,
+    InvalidInstruction,
+    MemoryUnmapped,
+    MemoryProtection,
+    Unknown
 };
 
 /**
@@ -31,11 +35,6 @@ struct VmExit
      * pc where a fault occured.
      */
     std::uint64_t pc = 0;
-
-    /**
-     * Address pointed to if a fault occured during a read/write)
-     */
-    std::uint64_t address = 0;
 };
 
 class Vm
@@ -68,7 +67,7 @@ public:
     void add_read_hook(MemOpHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
     void add_write_hook(MemOpHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
 
-    void run(std::uint64_t target, std::uint64_t timeout = 0, std::size_t count = 0);
+    VmExit run(std::uint64_t target, std::uint64_t timeout = 0, std::size_t count = 0);
 
     // Maps a range of pages into unicorn memory.
     //
@@ -96,16 +95,10 @@ public:
         return mode_;
     }
 
-    VmExit status() const
-    {
-        return exit_status_;
-    }
-
 private:
     void install_internal_hooks_();
 
     Mmu mmu_;
-    VmExit exit_status_;
     uc_engine* uc_ = nullptr;
     uc_arch arch_;
     uc_mode mode_;
