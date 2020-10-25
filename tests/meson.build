@@ -1,0 +1,1 @@
+subdir('microdns-fuzz')
