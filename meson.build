@@ -27,7 +27,8 @@ snapsnap_sources = [
   'src/vm.cpp',
   'src/mmu.cpp',
   'src/loader_coredump.cpp',
-  'src/utility_user_regs.cpp'
+  'src/utility_user_regs.cpp',
+  'src/inputdb.cpp'
 ]
 
 snapsnap_headers = include_directories('include')
@@ -46,3 +47,5 @@ snapsnap_test_sources = [
 
 executable('snapsnap_test', snapsnap_test_sources,
   dependencies: [snapsnap_dep, fmt_dep])
+
+subdir('tests')

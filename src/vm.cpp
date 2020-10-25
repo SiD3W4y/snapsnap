@@ -208,12 +208,13 @@ bool Vm::map_range(std::uint64_t address, std::size_t size)
     while (size > 0)
     {
         const MemoryPage* page = mmu_.get_page(address);
-        bool page_mapped = mapped_pages_.find(address) != mapped_pages_.end();
-        std::size_t bytes_to_eop = (page->address + page->size) - address;
-        std::size_t next_off = std::min(size, bytes_to_eop);
 
         if (!page)
             return false;
+
+        bool page_mapped = mapped_pages_.find(address) != mapped_pages_.end();
+        std::size_t bytes_to_eop = (page->address + page->size) - address;
+        std::size_t next_off = std::min(size, bytes_to_eop);
 
         if (!page_mapped)
         {
