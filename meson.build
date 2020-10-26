@@ -28,7 +28,8 @@ snapsnap_sources = [
   'src/mmu.cpp',
   'src/loader_coredump.cpp',
   'src/utility_user_regs.cpp',
-  'src/inputdb.cpp'
+  'src/inputdb.cpp',
+  'src/bumpallocator.cpp'
 ]
 
 snapsnap_headers = include_directories('include')
