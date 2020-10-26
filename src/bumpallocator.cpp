@@ -16,8 +16,12 @@ bool BumpAllocator::check_access(std::uint64_t address, std::uint64_t size) cons
         if (address < block.start && address >= block.end)
             continue;
 
-        // Out of bound access
+        // Heap overflow
         if (address + size > block.end)
+            return false;
+
+        // Use after free
+        if (!block.allocated)
             return false;
 
         // Access is valid
@@ -32,6 +36,8 @@ bool BumpAllocator::check_access(std::uint64_t address, std::uint64_t size) cons
  * Allocates a 16 bytes aligned memory block from the given size. Note that
  * there is not padding at the end of the virtually created block even if
  * the requested size is not 16 bytes aligned.
+ *
+ * Returns the allocated address or 0 on failure.
  */
 std::uint64_t BumpAllocator::alloc(std::uint64_t size)
 {
@@ -52,6 +58,33 @@ std::uint64_t BumpAllocator::alloc(std::uint64_t size)
     return heap_base_ + alloc_offset;
 }
 
+/** \brief Frees a memory block.
+ *
+ * Returns true on success and false if an error occured.
+ */
+bool BumpAllocator::free(std::uint64_t address)
+{
+    for (auto& block : allocated_)
+    {
+        if (block.start != address)
+            continue;
+
+        // Double free
+        if (!block.allocated)
+            return false;
+
+        block.allocated = false;
+        return true;
+    }
+
+    return false;
+}
+
+/** \brief Clears all allocated blocks.
+ *
+ * The allocator doesn't hold a handle on the memory itself, it only does the
+ * bookeeping. The actual memory should be cleared by the Vm itself (reset).
+ */
 void BumpAllocator::reset()
 {
     allocated_.clear();

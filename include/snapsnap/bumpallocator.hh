@@ -14,6 +14,7 @@ public:
 
     bool check_access(std::uint64_t address, std::uint64_t size) const;
     std::uint64_t alloc(std::uint64_t size);
+    bool free(std::uint64_t address);
 
     std::uint64_t size() const
     {
@@ -32,9 +33,10 @@ private:
     {
         std::uint64_t start;
         std::uint64_t end;
+        bool allocated;
 
         Block(std::uint64_t s, std::uint64_t e)
-            : start(s), end(e)
+            : start(s), end(e), allocated(true)
         {};
     };
 
