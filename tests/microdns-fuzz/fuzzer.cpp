@@ -1,10 +1,12 @@
 #include <map>
+#include <atomic>
 #include <string>
 #include <sstream>
 #include <fstream>
 #include <thread>
 #include <chrono>
 #include "fmt/core.h"
+
 #include "snapsnap/vm.hh"
 #include "snapsnap/loader.hh"
 #include "snapsnap/inputdb.hh"
@@ -41,7 +43,7 @@ void stats_thread()
         auto epoch = std::chrono::system_clock::now() - start_time;
         double epoch_s = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
 
-        fmt::print("[FUZZER] Executions: {:10} | exec/s: {:10.2f} | Coverage: {:10} | Corpus: {:10}\n",
+        fmt::print("| Executions: {:10} | exec/s: {:10.2f} | Coverage: {:10} | Corpus: {:10} |\n",
                 execution_count,
                 execution_count / epoch_s,
                 coverage,
@@ -118,7 +120,7 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
             if (!bitmap[index])
             {
-                bitmap[index] ^= 1;
+                bitmap[index] = 1;
                 coverage++;
 
                 db.add_input(input);
@@ -134,18 +136,25 @@ void fuzzing_thread(ssnap::Vm& original_vm)
     });
 
     // Hook calloc
+    auto calloc_addr = symbol_to_addr["calloc@plt"];
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
-            auto nmemb = vm.get_register(UC_X86_REG_RDI);
-            auto memb_size = vm.get_register(UC_X86_REG_RSI);
+            // auto nmemb = vm.get_register(UC_X86_REG_RDI);
+            // auto memb_size = vm.get_register(UC_X86_REG_RSI);
             auto rsp = vm.get_register(UC_X86_REG_RSP);
 
             std::uint64_t return_address = 0;
             vm.read(rsp, &return_address, sizeof(return_address));
 
             // fmt::print("return address: 0x{:x}\n", return_address);
-            vm.stop();
+            vm.stop(ssnap::VmExit(ssnap::VmExitStatus::Trap, address));
 
-    }, 0x555555555180, 0x555555555180+16);
+    }, calloc_addr, calloc_addr+16);
+
+    // Hook mem write
+    fuzzing_vm.add_write_hook([&](ssnap::Vm& vm, std::uint64_t address, int size, std::int64_t value) {
+            vm.mark_dirty_(address);
+            vm.mark_dirty_(address + size);
+    });
 
     for (;;)
     {
