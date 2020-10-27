@@ -69,6 +69,9 @@ public:
 
     VmExit run(std::uint64_t target, std::uint64_t timeout = 0, std::size_t count = 0);
 
+    // Stops the emulation
+    void stop();
+
     // Maps a range of pages into unicorn memory.
     //
     // Returns true on success.

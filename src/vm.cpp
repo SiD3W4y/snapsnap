@@ -272,6 +272,9 @@ VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
         exit_status.status = VmExitStatus::Unknown;
     }
 
+    if (exit_status.status != VmExitStatus::Unknown)
+        return exit_status;
+
     std::size_t is_timeout = 0;
 
     // XXX: Maybe do error checking
@@ -281,6 +284,11 @@ VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
         exit_status.status = VmExitStatus::Timeout;
 
     return exit_status;
+}
+
+void Vm::stop()
+{
+    uc_emu_stop(uc_);
 }
 
 // Setting up the plumbing for unicorn hooks
