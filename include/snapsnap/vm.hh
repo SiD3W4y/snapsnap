@@ -17,6 +17,7 @@ enum class VmExitStatus
     InvalidInstruction,
     MemoryUnmapped,
     MemoryProtection,
+    Trap,
     Unknown
 };
 
@@ -26,6 +27,14 @@ enum class VmExitStatus
  */
 struct VmExit
 {
+    VmExit()
+        : status(VmExitStatus::Ok), pc(0)
+    {};
+
+    VmExit(VmExitStatus s, std::uint64_t p)
+        : status(s), pc(p)
+    {};
+
     /**
      * Vm status at program exit.
      */
@@ -70,7 +79,7 @@ public:
     VmExit run(std::uint64_t target, std::uint64_t timeout = 0, std::size_t count = 0);
 
     // Stops the emulation
-    void stop();
+    void stop(VmExit exit_status);
 
     // Maps a range of pages into unicorn memory.
     //
@@ -110,6 +119,7 @@ private:
     uc_mode mode_;
     uc_context* cpu_context_ = nullptr;
     std::set<std::uint64_t> mapped_pages_;
+    VmExit exit_status_;
 
     // Unicorn hooks
     std::vector<uc_hook> hooks_;

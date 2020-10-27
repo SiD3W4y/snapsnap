@@ -250,51 +250,54 @@ bool Vm::map_range(std::uint64_t address, std::size_t size)
  */
 VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
 {
-    VmExit exit_status;
-    exit_status.status = VmExitStatus::Ok;
-    exit_status.pc = 0;
+    exit_status_.status = VmExitStatus::Ok;
+    exit_status_.pc = 0;
 
     std::uint64_t start_address = get_register(UC_X86_REG_RIP);
     uc_err err = uc_emu_start(uc_, start_address, target, timeout, count);
 
-    exit_status.pc = get_register(UC_X86_REG_RIP);
+    if (exit_status_.status != VmExitStatus::Ok)
+        return exit_status_;
+
+    exit_status_.pc = get_register(UC_X86_REG_RIP);
 
     switch (err)
     {
     case UC_ERR_READ_UNMAPPED:
     case UC_ERR_WRITE_UNMAPPED:
     case UC_ERR_FETCH_UNMAPPED:
-        exit_status.status = VmExitStatus::MemoryUnmapped;
+        exit_status_.status = VmExitStatus::MemoryUnmapped;
         break;
     case UC_ERR_READ_PROT:
     case UC_ERR_WRITE_PROT:
     case UC_ERR_FETCH_PROT:
-        exit_status.status = VmExitStatus::MemoryProtection;
+        exit_status_.status = VmExitStatus::MemoryProtection;
     case UC_ERR_INSN_INVALID:
-        exit_status.status = VmExitStatus::InvalidInstruction;
+        exit_status_.status = VmExitStatus::InvalidInstruction;
     case UC_ERR_OK:
-        exit_status.status = VmExitStatus::Ok;
+        exit_status_.status = VmExitStatus::Ok;
         break;
     default:
-        exit_status.status = VmExitStatus::Unknown;
+        exit_status_.status = VmExitStatus::Unknown;
     }
 
-    if (exit_status.status != VmExitStatus::Unknown)
-        return exit_status;
+    if (exit_status_.status != VmExitStatus::Unknown)
+        return exit_status_;
 
     std::size_t is_timeout = 0;
 
     // XXX: Maybe do error checking
     uc_query(uc_, UC_QUERY_TIMEOUT, &is_timeout);
 
-    if (is_timeout || exit_status.pc != target)
-        exit_status.status = VmExitStatus::Timeout;
+    if (is_timeout || exit_status_.pc != target)
+        exit_status_.status = VmExitStatus::Timeout;
 
-    return exit_status;
+    return exit_status_;
 }
 
-void Vm::stop()
+void Vm::stop(VmExit status)
 {
+    exit_status_ = status;
     uc_emu_stop(uc_);
 }
 
