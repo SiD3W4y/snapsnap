@@ -171,8 +171,8 @@ bool Mmu::write(std::uint64_t address, const void* buffer, std::size_t size)
 
 bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
 {
-    address &= ~(page_size_ - 1);
-    auto it = pages_.find(address);
+    auto page_address = address & ~(page_size_ - 1);
+    auto it = pages_.find(page_address);
 
     if (it == pages_.end())
         return false;
@@ -206,8 +206,8 @@ bool Mmu::read(std::uint64_t address, void* buffer, std::size_t size)
 
 bool Mmu::write_internal_(std::uint64_t address, const void* buffer, std::size_t size, bool dirty)
 {
-    address &= ~(page_size_ - 1);
-    auto it = pages_.find(address);
+    auto page_address = address & ~(page_size_ - 1);
+    auto it = pages_.find(page_address);
 
     if (it == pages_.end())
         return false;
