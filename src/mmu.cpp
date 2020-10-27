@@ -124,6 +124,11 @@ void Mmu::add_page_internal_(std::uint64_t address, std::size_t size, int prot, 
     }
 }
 
+/** \brief Resets the mmu state to the given reference state.
+ *
+ * If memory states differ widely (ex: not the same number of pages or pages having
+ * wrong permissions) then this function will throw.
+ */
 void Mmu::reset(const Mmu& other)
 {
     // TODO: Implement current error type
@@ -247,7 +252,15 @@ void Mmu::clear_dirty()
 void Mmu::mark_dirty(std::uint64_t address)
 {
     address &= ~(page_size_ - 1);
-    dirty_pages_.insert(address);
+
+    for (std::uint64_t page : dirty_pages_)
+    {
+        // Already marked
+        if (page == address)
+            return;
+    }
+
+    dirty_pages_.push_back(address);
 }
 
 }

@@ -2,7 +2,6 @@
 #define MMU_HH
 
 #include <vector>
-#include <set>
 #include <map>
 #include <optional>
 #include <cstdint>
@@ -127,7 +126,7 @@ private:
 
     std::uint64_t page_size_ = 0x1000;
     std::map<std::uint64_t, MemoryPage> pages_;
-    std::set<std::uint64_t> dirty_pages_;
+    std::vector<std::uint64_t> dirty_pages_;
 };
 
 }
