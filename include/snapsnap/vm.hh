@@ -82,6 +82,9 @@ public:
     // status accordingly on error.
     bool handle_pagefault_(std::uint64_t address, std::size_t size);
 
+    // Marks a page dirty in the mmu
+    void mark_dirty_(std::uint64_t address);
+
     std::uint64_t get_register(int regid);
     void set_register(int regid, std::uint64_t value);
 

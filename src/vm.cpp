@@ -158,6 +158,13 @@ bool Vm::read(std::uint64_t address, void* buffer, std::size_t size)
     return mmu_.read(address, buffer, size);
 }
 
+/** \brief Marks a page containing a given address as dirty.
+ */
+void Vm::mark_dirty_(std::uint64_t address)
+{
+    mmu_.mark_dirty(address);
+}
+
 /** \brief Returns the value of a register.
  */
 std::uint64_t Vm::get_register(int regid)
@@ -301,6 +308,13 @@ void unicorn_code_hook(uc_engine* uc, std::uint64_t address, std::uint32_t size,
     hook->operator()(address, size);
 }
 
+void unicorn_mem_hook(uc_engine* uc, uc_mem_type type, std::uint64_t address, int size, std::int64_t value,
+        void *user_data)
+{
+    Vm::MemOpTpl* hook = reinterpret_cast<Vm::MemOpTpl*>(user_data);
+    hook->operator()(address, size, value);
+}
+
 }
 
 /** \brief Registers a vm instruction hook.
@@ -368,8 +382,8 @@ void Vm::add_read_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 
     mem_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_MEM_READ,
-            reinterpret_cast<void*>(&unicorn_code_hook),
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_MEM_READ,
+            reinterpret_cast<void*>(&unicorn_mem_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
     if (err != UC_ERR_OK)
@@ -393,8 +407,8 @@ void Vm::add_write_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 
     mem_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_MEM_WRITE,
-            reinterpret_cast<void*>(&unicorn_code_hook),
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_MEM_WRITE,
+            reinterpret_cast<void*>(&unicorn_mem_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
     if (err != UC_ERR_OK)
