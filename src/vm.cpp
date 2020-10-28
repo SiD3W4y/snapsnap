@@ -301,6 +301,16 @@ void Vm::stop(VmExit status)
     uc_emu_stop(uc_);
 }
 
+void Vm::add_page(std::uint64_t address, std::size_t size, int prot)
+{
+    mmu_.add_page(address, size, prot);
+}
+
+void Vm::add_page(std::uint64_t address, std::size_t size, int prot, const void* data)
+{
+    mmu_.add_page(address, size, prot, data);
+}
+
 // Setting up the plumbing for unicorn hooks
 namespace
 {

@@ -17,6 +17,7 @@ enum class VmExitStatus
     InvalidInstruction,
     MemoryUnmapped,
     MemoryProtection,
+    OutOfMemory,
     Trap,
     Unknown
 };
@@ -69,6 +70,8 @@ public:
     bool write_raw(std::uint64_t address, const void* buffer, std::size_t size);
     bool write(std::uint64_t address, const void* buffer, std::size_t size);
     bool read(std::uint64_t address, void* buffer, std::size_t size);
+    void add_page(std::uint64_t address, std::size_t size, int prot);
+    void add_page(std::uint64_t address, std::size_t size, int prot, const void* data);
 
     // Unicorn hooks
     void add_code_hook(CodeHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
