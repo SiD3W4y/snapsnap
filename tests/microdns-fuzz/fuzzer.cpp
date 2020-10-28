@@ -4,6 +4,7 @@
 #include <sstream>
 #include <fstream>
 #include <thread>
+#include <unordered_set>
 #include <chrono>
 #include "fmt/core.h"
 
@@ -11,6 +12,7 @@
 #include "snapsnap/loader.hh"
 #include "snapsnap/inputdb.hh"
 #include "snapsnap/utility.hh"
+#include "snapsnap/bumpallocator.hh"
 
 // Symbols gathered by gdb while taking the coredump
 std::map<std::string, std::uint64_t> symbol_to_addr;
@@ -21,6 +23,10 @@ std::uint8_t bitmap[1 << 18] = {0};
 std::size_t coverage = 0;
 std::size_t execution_count = 0;
 std::size_t corpus_size = 0;
+
+constexpr std::uint64_t heap_start = 0x13370000;
+constexpr std::size_t heap_size = 0x1000 * 100;
+
 
 uint64_t pc_hash(uint64_t key)
 {
@@ -39,7 +45,7 @@ void stats_thread()
 
     for (;;)
     {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::this_thread::sleep_for(std::chrono::seconds(5));
         auto epoch = std::chrono::system_clock::now() - start_time;
         double epoch_s = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
 
@@ -113,6 +119,9 @@ void fuzzing_thread(ssnap::Vm& original_vm)
     std::vector<std::uint8_t> input;
     ssnap::InputDB db = initial_input_db();
 
+    ssnap::BumpAllocator checked_allocator(heap_start, heap_size);
+    std::unordered_set<std::uint64_t> bblist;
+
     // Coverage hook
     fuzzing_vm.add_block_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
             coverage_hash ^= pc_hash(address);
@@ -120,6 +129,12 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
             if (!bitmap[index])
             {
+                // Check if it is in bblist
+                auto bb = bblist.find(address);
+
+                if (bb != bblist.end())
+                    return;
+
                 bitmap[index] = 1;
                 coverage++;
 
@@ -127,28 +142,86 @@ void fuzzing_thread(ssnap::Vm& original_vm)
                 corpus_size = db.size();
 
                 auto it = addr_to_symbol.find(address);
+                bblist.emplace(address);
 
                 if (it != addr_to_symbol.end())
                     fmt::print("BLOCK: 0x{:x} ({})\n", address, it->second);
                 else
                     fmt::print("BLOCK: 0x{:x}\n", address);
             }
-    });
+    }, 0x555555555000, 0x55555555a000);
 
     // Hook calloc
     auto calloc_addr = symbol_to_addr["calloc@plt"];
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
-            // auto nmemb = vm.get_register(UC_X86_REG_RDI);
-            // auto memb_size = vm.get_register(UC_X86_REG_RSI);
+            auto nmemb = vm.get_register(UC_X86_REG_RDI);
+            auto memb_size = vm.get_register(UC_X86_REG_RSI);
+            auto alloc_size = nmemb * memb_size;
+
             auto rsp = vm.get_register(UC_X86_REG_RSP);
 
             std::uint64_t return_address = 0;
             vm.read(rsp, &return_address, sizeof(return_address));
 
-            // fmt::print("return address: 0x{:x}\n", return_address);
-            vm.stop(ssnap::VmExit(ssnap::VmExitStatus::Trap, address));
+            std::uint64_t alloc = checked_allocator.alloc(alloc_size);
 
+            if (alloc == 0)
+            {
+                fmt::print("calloc failed\n");
+                vm.stop(ssnap::VmExit(ssnap::VmExitStatus::OutOfMemory, address));
+                return;
+            }
+
+            // fmt::print("[ALLOCATOR] calloc at 0x{:x} of size 0x{:x}\n", alloc, alloc_size);
+
+            vm.set_register(UC_X86_REG_RIP, return_address);
+            vm.set_register(UC_X86_REG_RAX, alloc);
     }, calloc_addr, calloc_addr+16);
+
+    // Hook malloc
+    auto malloc_addr = symbol_to_addr["malloc@plt"];
+    fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
+            auto alloc_size = vm.get_register(UC_X86_REG_RAX);
+            auto rsp = vm.get_register(UC_X86_REG_RSP);
+
+            std::uint64_t return_address = 0;
+            vm.read(rsp, &return_address, sizeof(return_address));
+
+            std::uint64_t alloc = checked_allocator.alloc(alloc_size);
+
+            if (alloc == 0)
+            {
+                fmt::print("malloc failed\n");
+                vm.stop(ssnap::VmExit(ssnap::VmExitStatus::OutOfMemory, address));
+                return;
+            }
+
+            // fmt::print("[ALLOCATOR] malloc at 0x{:x} of size 0x{:x}\n", alloc, alloc_size);
+
+            vm.set_register(UC_X86_REG_RIP, return_address);
+            vm.set_register(UC_X86_REG_RAX, alloc);
+    }, malloc_addr, malloc_addr+16);
+
+    // Hook free
+    auto free_addr = symbol_to_addr["free@plt"];
+    fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
+            auto free_addr = vm.get_register(UC_X86_REG_RAX);
+            auto rsp = vm.get_register(UC_X86_REG_RSP);
+
+            std::uint64_t return_address = 0;
+            vm.read(rsp, &return_address, sizeof(return_address));
+
+            // fmt::print("[ALLOCATOR] free 0x{:x}\n", free_addr);
+
+            if (!checked_allocator.free(free_addr))
+            {
+                fmt::print("free failed for address 0x{:x}\n", free_addr);
+                vm.stop(ssnap::VmExit(ssnap::VmExitStatus::OutOfMemory, address));
+                return;
+            }
+
+            vm.set_register(UC_X86_REG_RIP, return_address);
+    }, free_addr, free_addr + 16);
 
     // Hook mem write
     fuzzing_vm.add_write_hook([&](ssnap::Vm& vm, std::uint64_t address, int size, std::int64_t value) {
@@ -160,7 +233,7 @@ void fuzzing_thread(ssnap::Vm& original_vm)
     {
         // Write input into memory
         input.clear();
-        db.get_random_input(input, 5);
+        db.get_random_input(input, 3);
 
         auto rdx = fuzzing_vm.get_register(UC_X86_REG_RDX);
         fuzzing_vm.write(rdx, input.data(), input.size());
@@ -171,10 +244,19 @@ void fuzzing_thread(ssnap::Vm& original_vm)
         if (vmexit.status != ssnap::VmExitStatus::Ok) {
             fmt::print("Fault at address 0x{:x}\n", vmexit.pc);
             fmt::print("fault: {}\n", vmexit.status);
+
+            for (auto b : input)
+                fmt::print("0x{:02x}, ", b);
+
+            fmt::print("\n");
+
+            ssnap::utility::print_cpu_state(fuzzing_vm);
+
             break;
         }
 
         fuzzing_vm.reset(original_vm);
+        checked_allocator.reset();
 
         execution_count++;
         coverage_hash = coverage_constant;
@@ -192,12 +274,15 @@ int main(int argc, char** argv)
     ssnap::Vm original_vm = ssnap::loader::from_coredump(argv[1], UC_ARCH_X86, UC_MODE_64);
     load_symbols(argv[2]);
 
+    // Adding memory for the allocator hooks
+    original_vm.add_page(heap_start, heap_size, ssnap::MemoryProtection::Read | ssnap::MemoryProtection::Write);
+
     fmt::print("[VM] Starting state\n");
     ssnap::utility::print_cpu_state(original_vm);
 
     std::thread stats(&stats_thread);
 
-    constexpr unsigned thread_count = 1;
+    constexpr unsigned thread_count = 4;
     std::vector<std::thread> threads;
 
     for (unsigned i = 0; i < thread_count; i++)
