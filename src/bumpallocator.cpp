@@ -87,6 +87,7 @@ bool BumpAllocator::free(std::uint64_t address)
  */
 void BumpAllocator::reset()
 {
+    heap_offset_ = 0;
     allocated_.clear();
 }
 
