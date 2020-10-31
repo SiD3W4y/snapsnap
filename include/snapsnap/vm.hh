@@ -51,9 +51,11 @@ class Vm
 {
 public:
     using CodeHook = std::function<void(Vm&, std::uint64_t, std::uint32_t)>;
-    using CodeHookTpl = std::function<void(std::uint64_t, std::uint32_t size)>;
+    using CodeHookTpl = std::function<void(std::uint64_t, std::uint32_t)>;
     using MemOpHook = std::function<void(Vm&, std::uint64_t, int, std::int64_t)>;
     using MemOpTpl = std::function<void(std::uint64_t, int, std::int64_t)>;
+    using IntHook = std::function<void(Vm&, std::uint32_t)>;
+    using IntHookTpl = std::function<void(std::uint32_t)>;
 
     Vm(uc_arch arch, uc_mode mode, Mmu&& mmu);
     Vm(const Vm& other);
@@ -78,6 +80,7 @@ public:
     void add_block_hook(CodeHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
     void add_read_hook(MemOpHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
     void add_write_hook(MemOpHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
+    void add_intr_hook(IntHook hook, std::uint64_t begin = 1, std::uint64_t end = 0);
 
     VmExit run(std::uint64_t target, std::uint64_t timeout = 0, std::size_t count = 0);
 
@@ -128,6 +131,7 @@ private:
     std::vector<uc_hook> hooks_;
     std::vector<CodeHookTpl*> code_hooks_;
     std::vector<MemOpTpl*> mem_hooks_;
+    std::vector<IntHookTpl*> intr_hooks_;
 };
 
 }

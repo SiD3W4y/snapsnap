@@ -117,6 +117,9 @@ Vm::~Vm()
 
     for (auto hook : mem_hooks_)
         delete hook;
+
+    for (auto hook : intr_hooks_)
+        delete hook;
 }
 
 /** \brief Resets the state of the vm.
@@ -148,7 +151,7 @@ bool Vm::write_raw(std::uint64_t address, const void* buffer, std::size_t size)
  */
 bool Vm::write(std::uint64_t address, const void* buffer, std::size_t size)
 {
-    return mmu_.write_raw(address, buffer, size);
+    return mmu_.write(address, buffer, size);
 }
 
 /** \brief Reads Vm memory into a buffer.
@@ -274,6 +277,9 @@ VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
         exit_status_.status = VmExitStatus::MemoryProtection;
     case UC_ERR_INSN_INVALID:
         exit_status_.status = VmExitStatus::InvalidInstruction;
+    case UC_ERR_EXCEPTION:
+        exit_status_.status = VmExitStatus::Trap;
+        break;
     case UC_ERR_OK:
         exit_status_.status = VmExitStatus::Ok;
         break;
@@ -326,6 +332,12 @@ void unicorn_mem_hook(uc_engine* uc, uc_mem_type type, std::uint64_t address, in
 {
     Vm::MemOpTpl* hook = reinterpret_cast<Vm::MemOpTpl*>(user_data);
     hook->operator()(address, size, value);
+}
+
+void unicorn_intr_hook(uc_engine* uc, std::uint32_t intno, void* user_data)
+{
+    Vm::IntHookTpl* hook = reinterpret_cast<Vm::IntHookTpl*>(user_data);
+    hook->operator()(intno);
 }
 
 }
@@ -426,6 +438,26 @@ void Vm::add_write_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(fmt::format("add_write_hook: {}", uc_strerror(err)));
+
+    hooks_.push_back(unicorn_hook);
+}
+
+void Vm::add_intr_hook(IntHook hook, std::uint64_t begin, std::uint64_t end)
+{
+    uc_hook unicorn_hook;
+
+    auto cb = new IntHookTpl([this, hook](std::uint64_t intno) {
+            hook(*this, intno);
+    });
+
+    intr_hooks_.push_back(cb);
+
+    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_INTR,
+            reinterpret_cast<void*>(&unicorn_intr_hook),
+            reinterpret_cast<void*>(cb), begin, end);
+
+    if (err != UC_ERR_OK)
+        throw std::runtime_error(fmt::format("add_intr_hook: {}", uc_strerror(err)));
 
     hooks_.push_back(unicorn_hook);
 }
