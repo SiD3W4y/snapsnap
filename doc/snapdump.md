@@ -10,6 +10,12 @@ The snapsnap dump format is pretty simple and is a simple stream of records.
 | Architecture | u32   | Magic number representing the architecture used in the dump |
 | Entries      | u32   | Number of entries                                           |
 
+### Architectures
+
+| Name    | Value |
+| :---:   | :---: |
+| x86\_64 | 0     |
+
 ## Entries
 
 Every entry has the following format
