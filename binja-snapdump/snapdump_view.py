@@ -141,7 +141,7 @@ class SnapdumpView(BinaryView):
                     return False
 
                 log_info(f"[SNAPDUMP] Register data size: {register_data_size}")
-                file_index ++ 4 + register_data_size
+                file_index += 4 + register_data_size
             else:
                 log_error(f"Unknown entry type: 0x{entry_type:x}")
                 return False
