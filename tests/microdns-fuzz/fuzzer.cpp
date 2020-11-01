@@ -4,6 +4,7 @@
 #include <sstream>
 #include <fstream>
 #include <thread>
+#include <mutex>
 #include <unordered_set>
 #include <chrono>
 #include "fmt/core.h"
@@ -17,27 +18,18 @@
 // Symbols gathered by gdb while taking the coredump
 std::map<std::string, std::uint64_t> symbol_to_addr;
 std::map<std::uint64_t, std::string> addr_to_symbol;
+std::unordered_set<std::uint64_t> coverage_bbs;
+std::mutex coverage_bbs_mutex;
 
 // TODO: Use atomics
 std::uint8_t bitmap[1 << 18] = {0};
 std::size_t coverage = 0;
 std::size_t execution_count = 0;
 std::size_t corpus_size = 0;
+std::size_t active_workers = 0;
 
 constexpr std::uint64_t heap_start = 0x13370000;
 constexpr std::size_t heap_size = 0x1000 * 100;
-
-
-uint64_t pc_hash(uint64_t key)
-{
-    key ^= key >> 33;
-    key *= 0xff51afd7ed558ccd;
-    key ^= key >> 33;
-    key *= 0xc4ceb9fe1a85ec53;
-    key ^= key >> 33;
-
-    return key;
-}
 
 void stats_thread()
 {
@@ -45,7 +37,10 @@ void stats_thread()
 
     for (;;)
     {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        if (!active_workers)
+            break;
+
+        std::this_thread::sleep_for(std::chrono::seconds(2));
         auto epoch = std::chrono::system_clock::now() - start_time;
         double epoch_s = std::chrono::duration_cast<std::chrono::seconds>(epoch).count();
 
@@ -90,6 +85,19 @@ void load_symbols(const char* path)
     fmt::print("[SYMBOLS] Symbol count: {}\n", symbol_to_addr.size());
 }
 
+// Apply patches to the image before execution (here mostly redirect AVX -> SSE)
+void apply_patches(ssnap::Vm& vm)
+{
+    std::uint64_t strchrnul_patch_addr = 0x7ffff7e6400b;
+    std::uint8_t strchrnul_patch_val = 0xeb;
+
+    std::uint64_t strchrnul_slot_addr = 0x7ffff7f93be8;
+    std::uint64_t strchrnul_slot_val = 0x7ffff7e70e60;
+
+    vm.write_raw(strchrnul_patch_addr, &strchrnul_patch_val, sizeof(strchrnul_patch_val));
+    vm.write_raw(strchrnul_slot_addr, &strchrnul_slot_val, sizeof(strchrnul_slot_val));
+}
+
 ssnap::InputDB initial_input_db()
 {
     ssnap::InputDB db;
@@ -103,6 +111,13 @@ ssnap::InputDB initial_input_db()
         0x6e, 0x69, 0x32, 0x30, 0x31, 0x38, 0xc0, 0x0c,
     });
 
+    std::vector<std::uint8_t> t;
+
+    for (unsigned i = 0; i < 40; i++)
+        t.push_back(i ^ 0x41);
+
+    db.add_input(t);
+
     return db;
 }
 
@@ -115,34 +130,34 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
     ssnap::Vm fuzzing_vm = original_vm;
     std::uint64_t coverage_hash = coverage_constant;
+    bool new_input = false;
 
     std::vector<std::uint8_t> input;
     ssnap::InputDB db = initial_input_db();
 
     ssnap::BumpAllocator checked_allocator(heap_start, heap_size);
-    std::unordered_set<std::uint64_t> bblist;
+    apply_patches(fuzzing_vm);
 
     // Coverage hook
     fuzzing_vm.add_block_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
-            coverage_hash ^= pc_hash(address);
-            std::size_t index = coverage_hash % sizeof(bitmap);
+            std::uint64_t cur_loc = (address >> 4) ^ (address << 8);
+            cur_loc %= sizeof(bitmap);
+            std::size_t index = (coverage_constant ^ cur_loc) % sizeof(bitmap);
+            coverage_hash = cur_loc >> 1;
 
             if (!bitmap[index])
             {
-                // Check if it is in bblist
-                auto bb = bblist.find(address);
+                std::lock_guard<std::mutex> lock(coverage_bbs_mutex);
 
-                if (bb != bblist.end())
-                    return;
+                if (coverage_bbs.find(address) != coverage_bbs.end())
+                     return;
 
                 bitmap[index] = 1;
                 coverage++;
 
-                db.add_input(input);
-                corpus_size = db.size();
-
+                new_input = true;
+                coverage_bbs.insert(address);
                 auto it = addr_to_symbol.find(address);
-                bblist.emplace(address);
 
                 if (it != addr_to_symbol.end())
                     fmt::print("BLOCK: 0x{:x} ({})\n", address, it->second);
@@ -150,6 +165,7 @@ void fuzzing_thread(ssnap::Vm& original_vm)
                     fmt::print("BLOCK: 0x{:x}\n", address);
             }
     }, 0x555555555000, 0x55555555a000);
+
 
     // Hook calloc
     auto calloc_addr = symbol_to_addr["calloc@plt"];
@@ -251,8 +267,13 @@ void fuzzing_thread(ssnap::Vm& original_vm)
             fmt::print("\n");
 
             ssnap::utility::print_cpu_state(fuzzing_vm);
-
             break;
+        }
+
+        if (new_input)
+        {
+            corpus_size++;
+            db.add_input(input);
         }
 
         fuzzing_vm.reset(original_vm);
@@ -260,7 +281,10 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
         execution_count++;
         coverage_hash = coverage_constant;
+        new_input = false;
     }
+
+    active_workers--;
 }
 
 int main(int argc, char** argv)
@@ -282,11 +306,17 @@ int main(int argc, char** argv)
 
     std::thread stats(&stats_thread);
 
-    constexpr unsigned thread_count = 4;
+    constexpr unsigned thread_count = 1;
     std::vector<std::thread> threads;
 
     for (unsigned i = 0; i < thread_count; i++)
+    {
         threads.emplace_back(&fuzzing_thread, std::ref(original_vm));
+        active_workers++;
+    }
+
+    for (auto& t : threads)
+        t.join();
 
     stats.join();
 
