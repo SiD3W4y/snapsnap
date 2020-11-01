@@ -15,6 +15,16 @@ def p64(x):
     return struct.pack("<Q", x)
 
 
+def gdb_int_value(exp):
+    value = int(gdb.parse_and_eval(exp))
+
+    # Two's complement because we only want positive values
+    if value < 0:
+        value = (value * -1 ^ 0xffffffffffffffff) + 1
+
+    return value
+
+
 class Protection:
     Read = 1
     Write = 2
@@ -35,6 +45,21 @@ class Mapping:
         self.start = start
         self.end = end
         self.prot = prot
+
+
+x86_64_user_regs_struct = [
+        "r15", "r14", "r13", "r12",
+        "rbp", "rbx", "r11", "r10",
+        "r9", "r8", "rax", "rcx",
+        "rdx", "rsi", "rdi", "orig_rax",
+        "rip", "cs", "eflags", "rsp",
+        "ss", "fs_base", "gs_base", "ds",
+        "es", "fs", "gs"
+]
+
+arch_registers = {
+        SdumpArchitecture.x86_64: x86_64_user_regs_struct,
+}
 
 
 class DumpSymbols(gdb.Command):
@@ -126,6 +151,7 @@ class DumpSnapshot(gdb.Command):
         out.write(p32(0))  # Entry count
         entry_count = 0
 
+        # Dump mappings
         for line in proc_maps:
             line = line.strip()
             info = list(filter(lambda a: len(a) > 1 and not a.isspace(), line.split(" ")))
@@ -164,6 +190,19 @@ class DumpSnapshot(gdb.Command):
                 print(f"Could not dump range 0x{start:x} -> 0x{end:x}")
                 continue
 
+        # Dump registers
+        register_data = b""
+
+        for reg in arch_registers[arch]:
+            register_data += p64(gdb_int_value(f"${reg}"))
+
+        out.write(p32(SdumpEntryId.Registers))
+        out.write(p32(len(register_data)))
+        out.write(register_data)
+
+        entry_count += 1
+
+        # Patch the entry count to the correct value
         out.seek(8)
         out.write(p32(entry_count))
 
