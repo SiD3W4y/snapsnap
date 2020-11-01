@@ -38,4 +38,5 @@ Every entry has the following format
 
 | Name           | Type     | Description                            |
 | :---:          | :---:    | :----------:                           |
+| Payload size   | u32      | Size of the register payload           |
 | Register state | variable | Implementation specific register state |

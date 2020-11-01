@@ -124,6 +124,7 @@ class DumpSnapshot(gdb.Command):
         out.write(b"SDMP")  # Magic
         out.write(p32(arch))  # Architecture
         out.write(p32(0))  # Entry count
+        entry_count = 0
 
         for line in proc_maps:
             line = line.strip()
@@ -150,18 +151,21 @@ class DumpSnapshot(gdb.Command):
 
             proc_mem.seek(start)
 
-            out.write(p32(SdumpEntryId.Mapping))
-            out.write(p8(perm))
-            out.write(p64(start))
-            out.write(p64(end))
-
             try:
                 data = proc_mem.read(end - start)
                 print(f"Dumping range 0x{start:x} -> 0x{end:x} {perm_str}")
+                out.write(p32(SdumpEntryId.Mapping))
+                out.write(p8(perm))
+                out.write(p64(start))
+                out.write(p64(end))
                 out.write(data)
+                entry_count += 1
             except OSError:
                 print(f"Could not dump range 0x{start:x} -> 0x{end:x}")
                 continue
+
+        out.seek(8)
+        out.write(p32(entry_count))
 
 
 DumpSymbols()
