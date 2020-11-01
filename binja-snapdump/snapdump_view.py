@@ -125,6 +125,23 @@ class SnapdumpView(BinaryView):
 
                 file_index += data_size
                 log_info(f"[SNAPDUMP] Loading mapping 0x{start:x} -> 0x{end:x}")
+            elif entry_type == SdumpEntryId.Registers:
+                file_index += 4
+                register_data_size = self.data.read(file_index, 4)
+
+                if len(register_data_size) != 4:
+                    log_error("Unexpected eof (register data size)")
+                    return False
+
+                register_data_size = u32(register_data_size)
+                register_data = self.data.read(file_index + 4, register_data_size)
+
+                if len(register_data) != register_data_size:
+                    log_error("Unexpected eof (register data)")
+                    return False
+
+                log_info(f"[SNAPDUMP] Register data size: {register_data_size}")
+                file_index ++ 4 + register_data_size
             else:
                 log_error(f"Unknown entry type: 0x{entry_type:x}")
                 return False
