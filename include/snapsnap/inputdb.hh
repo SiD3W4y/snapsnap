@@ -25,6 +25,7 @@ public:
 private:
     void mutate_bitflip_(std::vector<std::uint8_t>& input);
     void mutate_byteflip_(std::vector<std::uint8_t>& input);
+    void mutate_delete_(std::vector<std::uint8_t>& input);
 
     std::vector<std::vector<std::uint8_t>> inputs_;
     std::mt19937_64 prng_;

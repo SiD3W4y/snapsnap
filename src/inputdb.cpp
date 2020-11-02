@@ -42,6 +42,13 @@ void InputDB::mutate_byteflip_(std::vector<std::uint8_t>& input)
     input[index] ^= randbyte;
 }
 
+void InputDB::mutate_delete_(std::vector<std::uint8_t>& input)
+{
+    std::size_t start = prng_() % input.size();
+    std::size_t end = start + (prng_() % (input.size() - start));
+    input.erase(input.begin() + start, input.begin() + end);
+}
+
 void InputDB::get_random_input(std::vector<std::uint8_t>& new_input, std::size_t mutations)
 {
     if (inputs_.size() == 0)
@@ -49,7 +56,7 @@ void InputDB::get_random_input(std::vector<std::uint8_t>& new_input, std::size_t
 
     new_input = inputs_[prng_() % inputs_.size()];
     std::size_t mutation_count = prng_() % (mutations + 1);
-    constexpr std::size_t mutations_method_count = 2;
+    constexpr std::size_t mutations_method_count = 3;
 
     for (std::size_t i = 0; i < mutation_count; i++)
     {
@@ -61,6 +68,9 @@ void InputDB::get_random_input(std::vector<std::uint8_t>& new_input, std::size_t
                 break;
             case 1:
                 mutate_byteflip_(new_input);
+                break;
+            case 2:
+                mutate_delete_(new_input);
                 break;
             default:
                 break;
