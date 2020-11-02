@@ -37,7 +37,7 @@ void stats_thread()
 
     for (;;)
     {
-        if (!active_workers)
+        if (active_workers == 0)
             break;
 
         std::this_thread::sleep_for(std::chrono::seconds(2));
@@ -49,6 +49,15 @@ void stats_thread()
                 execution_count / epoch_s,
                 coverage,
                 corpus_size);
+
+        // Dump coverage to file
+        {
+            std::lock_guard<std::mutex> lock(coverage_bbs_mutex);
+            std::ofstream of("fuzzer.cov");
+
+            for (std::uint64_t bbaddr : coverage_bbs)
+                of << fmt::format("0x{:x}\n", bbaddr);
+        }
     }
 }
 
@@ -111,12 +120,26 @@ ssnap::InputDB initial_input_db()
         0x6e, 0x69, 0x32, 0x30, 0x31, 0x38, 0xc0, 0x0c,
     });
 
-    std::vector<std::uint8_t> t;
+   db.add_input({
+       0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x08, 0x4f, 0x75, 0x65,
+       0x73, 0x73, 0x61, 0x6e, 0x74, 0x0c, 0x5f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x2d, 0x69, 0x6e,
+       0x66, 0x6f, 0x04, 0x5f, 0x74, 0x63, 0x70, 0x05, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x00, 0x00, 0x10,
+       0x80, 0x01, 0x00, 0x00, 0x29, 0x05, 0xa0, 0x00, 0x00, 0x11, 0x94, 0x00, 0x12, 0x00, 0x04, 0x00,
+       0x0e, 0x00, 0x08, 0xac, 0xde, 0x48, 0x00, 0x11, 0x22, 0xa4, 0x83, 0xe7, 0x6f, 0x0a, 0xaf
+   });
 
-    for (unsigned i = 0; i < 40; i++)
-        t.push_back(i ^ 0x41);
+   db.add_input({
+       0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x34, 0x01, 0x63,
+       0x01, 0x38, 0x01, 0x30, 0x01, 0x64, 0x01, 0x39, 0x01, 0x65, 0x01, 0x66, 0x01, 0x66, 0x01, 0x66,
+       0x01, 0x61, 0x01, 0x63, 0x01, 0x38, 0x01, 0x32, 0x01, 0x61, 0x01, 0x37, 0x01, 0x30, 0x01, 0x30,
+       0x01, 0x65, 0x01, 0x34, 0x01, 0x35, 0x01, 0x33, 0x01, 0x38, 0x01, 0x30, 0x01, 0x30, 0x01, 0x30,
+       0x01, 0x62, 0x01, 0x63, 0x01, 0x31, 0x01, 0x30, 0x01, 0x61, 0x01, 0x32, 0x03, 0x69, 0x70, 0x36,
+       0x04, 0x61, 0x72, 0x70, 0x61, 0x00, 0x00, 0x0c, 0x00, 0x01, 0x01, 0x66, 0x01, 0x34, 0x01, 0x61,
+       0x01, 0x65, 0x01, 0x30, 0x01, 0x62, 0x01, 0x35, 0x01, 0x36, 0x01, 0x32, 0x01, 0x33, 0x01, 0x31,
+       0x01, 0x34, 0x01, 0x61, 0x01, 0x33, 0x01, 0x30, 0x01, 0x63, 0xc0, 0x2c, 0x00, 0x0c, 0x00, 0x01
+   });
 
-    db.add_input(t);
+   corpus_size = db.size();
 
     return db;
 }
@@ -168,7 +191,8 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
 
     // Hook calloc
-    auto calloc_addr = symbol_to_addr["calloc@plt"];
+    auto calloc_addr = symbol_to_addr["calloc@plt_0"];
+
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
             auto nmemb = vm.get_register(UC_X86_REG_RDI);
             auto memb_size = vm.get_register(UC_X86_REG_RSI);
@@ -192,10 +216,10 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
             vm.set_register(UC_X86_REG_RIP, return_address);
             vm.set_register(UC_X86_REG_RAX, alloc);
-    }, calloc_addr, calloc_addr+16);
+    }, calloc_addr, calloc_addr+1);
 
     // Hook malloc
-    auto malloc_addr = symbol_to_addr["malloc@plt"];
+    auto malloc_addr = symbol_to_addr["malloc@plt_0"];
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
             auto alloc_size = vm.get_register(UC_X86_REG_RAX);
             auto rsp = vm.get_register(UC_X86_REG_RSP);
@@ -216,10 +240,10 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
             vm.set_register(UC_X86_REG_RIP, return_address);
             vm.set_register(UC_X86_REG_RAX, alloc);
-    }, malloc_addr, malloc_addr+16);
+    }, malloc_addr, malloc_addr+1);
 
     // Hook free
-    auto free_addr = symbol_to_addr["free@plt"];
+    auto free_addr = symbol_to_addr["free@plt_0"];
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
             auto free_addr = vm.get_register(UC_X86_REG_RAX);
             auto rsp = vm.get_register(UC_X86_REG_RSP);
@@ -237,7 +261,15 @@ void fuzzing_thread(ssnap::Vm& original_vm)
             }
 
             vm.set_register(UC_X86_REG_RIP, return_address);
-    }, free_addr, free_addr + 16);
+    }, free_addr, free_addr + 1);
+
+    // Hook errno
+    // TODO: Check why it crashes when not hooked
+    auto errno_addr = symbol_to_addr["__errno_location@plt"];
+    fuzzing_vm.add_code_hook([](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
+            vm.stop(ssnap::VmExit(ssnap::VmExitStatus::Ok, address));
+            return;
+    }, errno_addr, errno_addr + 1);
 
     // Hook mem write
     fuzzing_vm.add_write_hook([&](ssnap::Vm& vm, std::uint64_t address, int size, std::int64_t value) {
@@ -291,11 +323,12 @@ int main(int argc, char** argv)
 {
     if (argc != 3)
     {
-        fmt::print("usage: {} <core file> <symbol file>\n", argv[0]);
+        fmt::print("usage: {} <snapshot file> <symbol file>\n", argv[0]);
         return 1;
     }
 
-    ssnap::Vm original_vm = ssnap::loader::from_coredump(argv[1], UC_ARCH_X86, UC_MODE_64);
+    // ssnap::Vm original_vm = ssnap::loader::from_coredump(argv[1], UC_ARCH_X86, UC_MODE_64);
+    ssnap::Vm original_vm = ssnap::loader::from_snapdump(argv[1]);
     load_symbols(argv[2]);
 
     // Adding memory for the allocator hooks
@@ -306,13 +339,13 @@ int main(int argc, char** argv)
 
     std::thread stats(&stats_thread);
 
-    constexpr unsigned thread_count = 1;
+    constexpr unsigned thread_count = 8;
     std::vector<std::thread> threads;
 
     for (unsigned i = 0; i < thread_count; i++)
     {
-        threads.emplace_back(&fuzzing_thread, std::ref(original_vm));
         active_workers++;
+        threads.emplace_back(&fuzzing_thread, std::ref(original_vm));
     }
 
     for (auto& t : threads)
