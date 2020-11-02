@@ -41,6 +41,10 @@ bool BumpAllocator::check_access(std::uint64_t address, std::uint64_t size) cons
  */
 std::uint64_t BumpAllocator::alloc(std::uint64_t size)
 {
+    // malloc(0) must return a valid pointer that can be freed
+    if (size == 0)
+        size = 8;
+
     if (heap_offset_ + size > heap_size_)
         return 0;
 
@@ -64,6 +68,10 @@ std::uint64_t BumpAllocator::alloc(std::uint64_t size)
  */
 bool BumpAllocator::free(std::uint64_t address)
 {
+    // free(cookie) should not crash
+    if (address == 0)
+        return true;
+
     for (auto& block : allocated_)
     {
         if (block.start != address)
