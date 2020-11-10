@@ -3,6 +3,7 @@
 #include <cstring>
 #include "fmt/core.h"
 #include "snapsnap/vm.hh"
+#include "snapsnap_internal.hh"
 
 namespace ssnap
 {
@@ -17,45 +18,58 @@ bool unmapped_cb_(uc_engine* uc, uc_mem_type type, std::uint64_t address, int si
     return vm->map_range(address, size);
 }
 
+
 }
 
-Vm::Vm(uc_arch arch, uc_mode mode, Mmu&& mmu)
-    : mmu_(std::move(mmu)), arch_(arch), mode_(mode)
+Vm::Vm(VmArch arch, Mmu&& mmu)
+    : mmu_(std::move(mmu)), arch_(arch)
 {
-    uc_err err = uc_open(arch, mode, &uc_);
+    uc_mode vm_mode;
+    uc_arch vm_arch;
+    ssnappriv::vmarch_to_unicorn(arch_, vm_arch, vm_mode);
+
+    uc_err err = uc_open(vm_arch, vm_mode, reinterpret_cast<uc_engine**>(&uc_));
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(uc_strerror(err));
 
-    err = uc_context_alloc(uc_, &cpu_context_);
+    err = uc_context_alloc(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context**>(&cpu_context_));
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(uc_strerror(err));
 
     // Save the initial context
-    uc_context_save(uc_, cpu_context_);
+    uc_context_save(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
     install_internal_hooks_();
 }
 
 Vm& Vm::operator=(const Vm& other)
 {
     arch_ = other.arch_;
-    mode_ = other.mode_;
     mmu_ = other.mmu_;
     mapped_pages_ = other.mapped_pages_;
 
-    uc_err err = uc_open(arch_, mode_, &uc_);
+    uc_mode vm_mode;
+    uc_arch vm_arch;
+    ssnappriv::vmarch_to_unicorn(arch_, vm_arch, vm_mode);
+
+    uc_err err = uc_open(vm_arch, vm_mode, reinterpret_cast<uc_engine**>(&uc_));
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(uc_strerror(err));
 
-    err = uc_context_alloc(uc_, &cpu_context_);
+    err = uc_context_alloc(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context**>(&cpu_context_));
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(uc_strerror(err));
 
-    uc_context_save(other.uc_, cpu_context_);
-    uc_context_restore(uc_, cpu_context_);
+    uc_context_save(reinterpret_cast<uc_engine*>(other.uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
+    uc_context_restore(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
     install_internal_hooks_();
 
     return *this;
@@ -74,23 +88,27 @@ Vm::Vm(const Vm& other)
 Vm& Vm::operator=(Vm&& other)
 {
     arch_ = other.arch_;
-    mode_ = other.mode_;
     mmu_ = std::move(other.mmu_);
     mapped_pages_ = {};
 
     if (uc_)
-        uc_close(uc_);
+        uc_close(reinterpret_cast<uc_engine*>(uc_));
 
-    uc_err err = uc_open(other.arch(), other.mode(), &uc_);
+    uc_arch vm_arch;
+    uc_mode vm_mode;
+    ssnappriv::vmarch_to_unicorn(arch_, vm_arch, vm_mode);
+
+    uc_err err = uc_open(vm_arch, vm_mode, reinterpret_cast<uc_engine**>(&uc_));
 
     if (err != UC_ERR_OK)
         throw std::runtime_error("Could not create new unicorn instance");
 
     cpu_context_ = other.cpu_context_;
-    uc_context_restore(uc_, cpu_context_);
+    uc_context_restore(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
     install_internal_hooks_();
 
-    uc_close(other.uc_);
+    uc_close(reinterpret_cast<uc_engine*>(other.uc_));
 
     other.uc_ = nullptr;
     other.cpu_context_ = nullptr;
@@ -109,7 +127,7 @@ Vm::~Vm()
         uc_free(cpu_context_);
 
     if (uc_)
-        uc_close(uc_);
+        uc_close(reinterpret_cast<uc_engine*>(uc_));
 
     // Destroy lambda hooks
     for (auto hook : code_hooks_)
@@ -132,8 +150,10 @@ void Vm::reset(const Vm& original)
     // TODO: Add code to iterate Mmu pages and mark them dirty according to the
     // set of page address written to.
     mmu_.reset(original.mmu_);
-    uc_context_save(original.uc_, cpu_context_);
-    uc_context_restore(uc_, cpu_context_);
+    uc_context_save(reinterpret_cast<uc_engine*>(original.uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
+    uc_context_restore(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
 }
 
 /** \brief Writes data into Vm memory
@@ -173,7 +193,7 @@ void Vm::mark_dirty_(std::uint64_t address)
 std::uint64_t Vm::get_register(int regid)
 {
     std::uint64_t value;
-    uc_err err = uc_reg_read(uc_, regid, &value);
+    uc_err err = uc_reg_read(reinterpret_cast<uc_engine*>(uc_), regid, &value);
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(fmt::format("get_register: {}", uc_strerror(err)));
@@ -185,7 +205,7 @@ std::uint64_t Vm::get_register(int regid)
  */
 void Vm::set_register(int regid, std::uint64_t value)
 {
-    uc_err err = uc_reg_write(uc_, regid, &value);
+    uc_err err = uc_reg_write(reinterpret_cast<uc_engine*>(uc_), regid, &value);
 
     if (err != UC_ERR_OK)
         throw std::runtime_error(fmt::format("set_register: {}", uc_strerror(err)));
@@ -197,7 +217,8 @@ void Vm::set_register(int regid, std::uint64_t value)
  */
 void Vm::save_cpu_context()
 {
-    uc_context_save(uc_, cpu_context_);
+    uc_context_save(reinterpret_cast<uc_engine*>(uc_),
+            reinterpret_cast<uc_context*>(cpu_context_));
 }
 
 bool Vm::address_mapped(std::uint64_t address) const
@@ -228,7 +249,8 @@ bool Vm::map_range(std::uint64_t address, std::size_t size)
 
         if (!page_mapped)
         {
-            uc_err err = uc_mem_map_ptr(uc_, page->address, page->size, page->prot, page->data);
+            uc_err err = uc_mem_map_ptr(reinterpret_cast<uc_engine*>(uc_),
+                    page->address, page->size, page->prot, page->data);
 
             if (err != UC_ERR_OK)
                 throw std::runtime_error(fmt::format("map_page: {}", uc_strerror(err)));
@@ -257,7 +279,8 @@ VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
     exit_status_.pc = 0;
 
     std::uint64_t start_address = get_register(UC_X86_REG_RIP);
-    uc_err err = uc_emu_start(uc_, start_address, target, timeout, count);
+    uc_err err = uc_emu_start(reinterpret_cast<uc_engine*>(uc_),
+            start_address, target, timeout, count);
 
     if (exit_status_.status != VmExitStatus::Ok)
         return exit_status_;
@@ -293,7 +316,7 @@ VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
     std::size_t is_timeout = 0;
 
     // XXX: Maybe do error checking
-    uc_query(uc_, UC_QUERY_TIMEOUT, &is_timeout);
+    uc_query(reinterpret_cast<uc_engine*>(uc_), UC_QUERY_TIMEOUT, &is_timeout);
 
     if (is_timeout || exit_status_.pc != target)
         exit_status_.status = VmExitStatus::Timeout;
@@ -304,7 +327,7 @@ VmExit Vm::run(std::uint64_t target, std::uint64_t timeout, std::size_t count)
 void Vm::stop(VmExit status)
 {
     exit_status_ = status;
-    uc_emu_stop(uc_);
+    uc_emu_stop(reinterpret_cast<uc_engine*>(uc_));
 }
 
 void Vm::add_page(std::uint64_t address, std::size_t size, int prot)
@@ -357,7 +380,9 @@ void Vm::add_code_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
 
     code_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_CODE,
+    uc_err err = uc_hook_add(reinterpret_cast<uc_engine*>(uc_),
+            &unicorn_hook,
+            UC_HOOK_CODE,
             reinterpret_cast<void*>(&unicorn_code_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
@@ -382,7 +407,9 @@ void Vm::add_block_hook(CodeHook hook, std::uint64_t begin, std::uint64_t end)
 
     code_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_BLOCK,
+    uc_err err = uc_hook_add(reinterpret_cast<uc_engine*>(uc_),
+            &unicorn_hook,
+            UC_HOOK_BLOCK,
             reinterpret_cast<void*>(&unicorn_code_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
@@ -407,7 +434,9 @@ void Vm::add_read_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 
     mem_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_MEM_READ,
+    uc_err err = uc_hook_add(reinterpret_cast<uc_engine*>(uc_),
+            &unicorn_hook,
+            UC_HOOK_MEM_READ,
             reinterpret_cast<void*>(&unicorn_mem_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
@@ -432,7 +461,9 @@ void Vm::add_write_hook(MemOpHook hook, std::uint64_t begin, std::uint64_t end)
 
     mem_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_MEM_WRITE,
+    uc_err err = uc_hook_add(reinterpret_cast<uc_engine*>(uc_),
+            &unicorn_hook,
+            UC_HOOK_MEM_WRITE,
             reinterpret_cast<void*>(&unicorn_mem_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
@@ -452,7 +483,9 @@ void Vm::add_intr_hook(IntHook hook, std::uint64_t begin, std::uint64_t end)
 
     intr_hooks_.push_back(cb);
 
-    uc_err err = uc_hook_add(uc_, &unicorn_hook, UC_HOOK_INTR,
+    uc_err err = uc_hook_add(reinterpret_cast<uc_engine*>(uc_),
+            &unicorn_hook,
+            UC_HOOK_INTR,
             reinterpret_cast<void*>(&unicorn_intr_hook),
             reinterpret_cast<void*>(cb), begin, end);
 
@@ -467,7 +500,9 @@ void Vm::install_internal_hooks_()
     // Install mem unmapped hook
     uc_hook unmapped_hook;
 
-    uc_err err = uc_hook_add(uc_, &unmapped_hook, UC_HOOK_MEM_UNMAPPED,
+    uc_err err = uc_hook_add(reinterpret_cast<uc_engine*>(uc_),
+            &unmapped_hook,
+            UC_HOOK_MEM_UNMAPPED,
             reinterpret_cast<void*>(&unmapped_cb_),
             reinterpret_cast<void*>(this), 1, 0);
 

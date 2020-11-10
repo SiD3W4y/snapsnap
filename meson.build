@@ -30,7 +30,8 @@ snapsnap_sources = [
   'src/loader_snapdump.cpp',
   'src/utility_user_regs.cpp',
   'src/inputdb.cpp',
-  'src/bumpallocator.cpp'
+  'src/bumpallocator.cpp',
+  'src/snapsnap_internal.cpp'
 ]
 
 snapsnap_headers = include_directories('include')
@@ -42,12 +43,5 @@ snapsnap_library = library('snapsnap', snapsnap_sources,
 snapsnap_dep = declare_dependency(link_with: snapsnap_library,
   include_directories: snapsnap_headers,
 )
-
-snapsnap_test_sources = [
-  'src/main.cpp'
-]
-
-executable('snapsnap_test', snapsnap_test_sources,
-  dependencies: [snapsnap_dep, fmt_dep])
 
 subdir('tests')

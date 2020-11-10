@@ -56,9 +56,9 @@ std::map<int, std::string> x86_64_reg_to_str = {
 
 }
 
-const std::vector<int>& get_user_regs_struct(uc_arch arch, uc_mode mode)
+const std::vector<int>& get_user_regs_struct(VmArch arch)
 {
-    if (arch != UC_ARCH_X86 || mode != UC_MODE_64)
+    if (arch != VmArch::x86_64)
         throw std::runtime_error("Only x86_64 is supported for now");
 
     return x86_64_user_regs_struct;
@@ -66,7 +66,7 @@ const std::vector<int>& get_user_regs_struct(uc_arch arch, uc_mode mode)
 
 void print_cpu_state(Vm& vm)
 {
-    if (vm.arch() != UC_ARCH_X86 || vm.mode() != UC_MODE_64)
+    if (vm.arch() != VmArch::x86_64)
         throw std::runtime_error("Only x86_64 is supported for now");
 
     std::size_t count = 0;

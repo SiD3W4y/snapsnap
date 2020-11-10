@@ -1,19 +1,15 @@
 #ifndef UTILITY_HH
 #define UTILITY_HH
 
-#include <vector>
-#include "unicorn/unicorn.h"
+#include "snapsnap/vm.hh"
 
 namespace ssnap
 {
 
-struct Vm;
-
 namespace utility
 {
 
-
-const std::vector<int>& get_user_regs_struct(uc_arch arch, uc_mode mode);
+const std::vector<int>& get_user_regs_struct(ssnap::VmArch arch);
 void print_cpu_state(Vm& vm);
 
 }

@@ -3,8 +3,10 @@
 #include <fcntl.h>
 #include <libelf.h>
 #include <stdexcept>
+#include "unicorn/unicorn.h"
 #include "snapsnap/loader.hh"
 #include "snapsnap/utility.hh"
+#include "snapsnap_internal.hh"
 
 namespace ssnap
 {
@@ -148,7 +150,7 @@ void load_regs(Elf* elf, Vm& vm)
     if (!regs_base)
         throw std::runtime_error("Could not find registers");
 
-    auto& regs_ids = ssnap::utility::get_user_regs_struct(vm.arch(), vm.mode());
+    auto& regs_ids = ssnap::utility::get_user_regs_struct(vm.arch());
     std::uint64_t fsbase = 0;
     std::uint64_t gsbase = 0;
 
@@ -174,8 +176,11 @@ void load_regs(Elf* elf, Vm& vm)
 
 }
 
-Vm from_coredump(std::string path, uc_arch arch, uc_mode mode)
+Vm from_coredump(std::string path, VmArch arch)
 {
+    if (arch != VmArch::x86_64)
+        throw std::runtime_error("Only x86_64 is supported for now");
+
     int fd = open(path.c_str(), O_RDONLY, 0);
 
     if (fd == -1)
@@ -196,7 +201,7 @@ Vm from_coredump(std::string path, uc_arch arch, uc_mode mode)
         throw std::runtime_error("Only core dumps are supported");
 
 
-    Vm vm(arch, mode, load_pages(elf));
+    Vm vm(arch, load_pages(elf));
     load_regs(elf, vm);
 
     elf_end(elf);

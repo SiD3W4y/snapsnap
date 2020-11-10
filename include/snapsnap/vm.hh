@@ -4,7 +4,6 @@
 #include <set>
 #include <vector>
 #include <functional>
-#include "unicorn/unicorn.h"
 #include "snapsnap/mmu.hh"
 
 namespace ssnap
@@ -47,6 +46,20 @@ struct VmExit
     std::uint64_t pc = 0;
 };
 
+enum class VmArch
+{
+    x86_64,
+    Invalid
+};
+
+
+// Opaque types for unicorn handle and cpu context handles
+class UnicornHandle;
+class UnicornCpuContext;
+
+// uc_hook is defined as size_t
+using UnicornHook = std::size_t;
+
 class Vm
 {
 public:
@@ -57,7 +70,7 @@ public:
     using IntHook = std::function<void(Vm&, std::uint32_t)>;
     using IntHookTpl = std::function<void(std::uint32_t)>;
 
-    Vm(uc_arch arch, uc_mode mode, Mmu&& mmu);
+    Vm(VmArch arch, Mmu&& mmu);
     Vm(const Vm& other);
     Vm& operator=(const Vm& other);
     Vm(Vm&& other);
@@ -106,29 +119,23 @@ public:
     // Saves the state of the registers to the context.
     void save_cpu_context();
 
-    uc_arch arch() const
+    VmArch arch() const
     {
         return arch_;
-    }
-
-    uc_mode mode() const
-    {
-        return mode_;
     }
 
 private:
     void install_internal_hooks_();
 
     Mmu mmu_;
-    uc_engine* uc_ = nullptr;
-    uc_arch arch_;
-    uc_mode mode_;
-    uc_context* cpu_context_ = nullptr;
+    VmArch arch_;
+    UnicornHandle* uc_ = nullptr;
+    UnicornCpuContext* cpu_context_ = nullptr;
     std::set<std::uint64_t> mapped_pages_;
     VmExit exit_status_;
 
     // Unicorn hooks
-    std::vector<uc_hook> hooks_;
+    std::vector<UnicornHook> hooks_;
     std::vector<CodeHookTpl*> code_hooks_;
     std::vector<MemOpTpl*> mem_hooks_;
     std::vector<IntHookTpl*> intr_hooks_;

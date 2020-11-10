@@ -14,6 +14,9 @@
 #include "snapsnap/inputdb.hh"
 #include "snapsnap/utility.hh"
 #include "snapsnap/bumpallocator.hh"
+#include "snapsnap/arch/x86.hh"
+
+namespace x86 = ssnap::arch::x86;
 
 // Symbols gathered by gdb while taking the coredump
 std::map<std::string, std::uint64_t> symbol_to_addr;
@@ -194,11 +197,11 @@ void fuzzing_thread(ssnap::Vm& original_vm)
     auto calloc_addr = symbol_to_addr["calloc@plt_0"];
 
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
-            auto nmemb = vm.get_register(UC_X86_REG_RDI);
-            auto memb_size = vm.get_register(UC_X86_REG_RSI);
+            auto nmemb = vm.get_register(x86::rdi);
+            auto memb_size = vm.get_register(x86::rsi);
             auto alloc_size = nmemb * memb_size;
 
-            auto rsp = vm.get_register(UC_X86_REG_RSP);
+            auto rsp = vm.get_register(x86::rsp);
 
             std::uint64_t return_address = 0;
             vm.read(rsp, &return_address, sizeof(return_address));
@@ -214,15 +217,15 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
             // fmt::print("[ALLOCATOR] calloc at 0x{:x} of size 0x{:x}\n", alloc, alloc_size);
 
-            vm.set_register(UC_X86_REG_RIP, return_address);
-            vm.set_register(UC_X86_REG_RAX, alloc);
+            vm.set_register(x86::rip, return_address);
+            vm.set_register(x86::rax, alloc);
     }, calloc_addr, calloc_addr+1);
 
     // Hook malloc
     auto malloc_addr = symbol_to_addr["malloc@plt_0"];
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
-            auto alloc_size = vm.get_register(UC_X86_REG_RAX);
-            auto rsp = vm.get_register(UC_X86_REG_RSP);
+            auto alloc_size = vm.get_register(x86::rax);
+            auto rsp = vm.get_register(x86::rsp);
 
             std::uint64_t return_address = 0;
             vm.read(rsp, &return_address, sizeof(return_address));
@@ -238,15 +241,15 @@ void fuzzing_thread(ssnap::Vm& original_vm)
 
             // fmt::print("[ALLOCATOR] malloc at 0x{:x} of size 0x{:x}\n", alloc, alloc_size);
 
-            vm.set_register(UC_X86_REG_RIP, return_address);
-            vm.set_register(UC_X86_REG_RAX, alloc);
+            vm.set_register(x86::rip, return_address);
+            vm.set_register(x86::rax, alloc);
     }, malloc_addr, malloc_addr+1);
 
     // Hook free
     auto free_addr = symbol_to_addr["free@plt_0"];
     fuzzing_vm.add_code_hook([&](ssnap::Vm& vm, std::uint64_t address, std::uint32_t size) {
-            auto free_addr = vm.get_register(UC_X86_REG_RAX);
-            auto rsp = vm.get_register(UC_X86_REG_RSP);
+            auto free_addr = vm.get_register(x86::rax);
+            auto rsp = vm.get_register(x86::rsp);
 
             std::uint64_t return_address = 0;
             vm.read(rsp, &return_address, sizeof(return_address));
@@ -260,7 +263,7 @@ void fuzzing_thread(ssnap::Vm& original_vm)
                 return;
             }
 
-            vm.set_register(UC_X86_REG_RIP, return_address);
+            vm.set_register(x86::rip, return_address);
     }, free_addr, free_addr + 1);
 
     // Hook errno
@@ -283,9 +286,9 @@ void fuzzing_thread(ssnap::Vm& original_vm)
         input.clear();
         db.get_random_input(input, 3);
 
-        auto rdx = fuzzing_vm.get_register(UC_X86_REG_RDX);
+        auto rdx = fuzzing_vm.get_register(x86::rdx);
         fuzzing_vm.write(rdx, input.data(), input.size());
-        fuzzing_vm.set_register(UC_X86_REG_RCX, input.size());
+        fuzzing_vm.set_register(x86::rcx, input.size());
 
         ssnap::VmExit vmexit = fuzzing_vm.run(end_address);
 

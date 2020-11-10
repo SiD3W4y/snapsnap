@@ -10,7 +10,7 @@ namespace ssnap
 namespace loader
 {
 
-Vm from_coredump(std::string path, uc_arch arch, uc_mode mode);
+Vm from_coredump(std::string path, VmArch arch);
 Vm from_snapdump(std::string path);
 
 }

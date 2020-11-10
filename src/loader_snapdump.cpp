@@ -1,8 +1,10 @@
 #include <fstream>
 #include <vector>
 #include "fmt/core.h"
+#include "unicorn/unicorn.h"
 #include "snapsnap/loader.hh"
 #include "snapsnap/utility.hh"
+#include "snapsnap_internal.hh"
 
 namespace ssnap
 {
@@ -40,7 +42,7 @@ std::uint8_t read_u8(std::ifstream& is)
 void load_registers(Vm& vm, std::vector<std::uint8_t>& register_state)
 {
     // TODO: Find a cleaner way of doing this (arch argnostic)
-    auto& regs_ids = ssnap::utility::get_user_regs_struct(vm.arch(), vm.mode());
+    auto& regs_ids = ssnap::utility::get_user_regs_struct(vm.arch());
     std::uint64_t* regs_u64 = reinterpret_cast<std::uint64_t*>(register_state.data());
 
     if (register_state.size() % sizeof(*regs_u64) != 0)
@@ -141,7 +143,7 @@ Vm from_snapdump(std::string path)
             throw std::runtime_error(fmt::format("Unexpected entry magic: 0x{:08x}\n", entry_magic));
     }
 
-    Vm vm(UC_ARCH_X86, UC_MODE_64, std::move(mmu));
+    Vm vm(VmArch::x86_64, std::move(mmu));
     load_registers(vm, register_state);
 
     return vm;
