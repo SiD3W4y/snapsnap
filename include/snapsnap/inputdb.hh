@@ -2,8 +2,8 @@
 #define INPUTDB_HH
 
 #include <vector>
-#include <random>
 #include <cstdint>
+#include "random.hh"
 
 namespace ssnap
 {
@@ -28,7 +28,7 @@ private:
     void mutate_delete_(std::vector<std::uint8_t>& input);
 
     std::vector<std::vector<std::uint8_t>> inputs_;
-    std::mt19937_64 prng_;
+    Wyrand prng_;
 };
 
 }

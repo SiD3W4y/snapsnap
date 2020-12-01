@@ -26,7 +26,7 @@ void InputDB::add_input(std::vector<std::uint8_t> input)
     inputs_.push_back(input);
 }
 
-void InputDB::mutate_bitflip_(std::vector<std::uint8_t>& input)
+inline void InputDB::mutate_bitflip_(std::vector<std::uint8_t>& input)
 {
     std::size_t index = prng_() % input.size();
     std::size_t bitindex = prng_() % 8;
@@ -34,7 +34,7 @@ void InputDB::mutate_bitflip_(std::vector<std::uint8_t>& input)
     input[index] ^= (1 << bitindex);
 }
 
-void InputDB::mutate_byteflip_(std::vector<std::uint8_t>& input)
+inline void InputDB::mutate_byteflip_(std::vector<std::uint8_t>& input)
 {
     std::size_t index = prng_() % input.size();
     std::uint8_t randbyte = prng_() & 0xff;
@@ -42,7 +42,7 @@ void InputDB::mutate_byteflip_(std::vector<std::uint8_t>& input)
     input[index] ^= randbyte;
 }
 
-void InputDB::mutate_delete_(std::vector<std::uint8_t>& input)
+inline void InputDB::mutate_delete_(std::vector<std::uint8_t>& input)
 {
     std::size_t start = prng_() % input.size();
     std::size_t end = start + (prng_() % (input.size() - start));
