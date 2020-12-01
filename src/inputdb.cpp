@@ -5,15 +5,9 @@
 namespace ssnap
 {
 
-InputDB::InputDB()
-    : prng_(std::time(nullptr))
-{
-}
-
 InputDB::InputDB(std::size_t seed)
     : prng_(seed)
-{
-}
+{}
 
 void InputDB::add_input(std::vector<std::uint8_t> input)
 {

@@ -32,7 +32,9 @@ snapsnap_sources = [
   'src/utility_user_regs.cpp',
   'src/inputdb.cpp',
   'src/bumpallocator.cpp',
-  'src/snapsnap_internal.cpp'
+  'src/snapsnap_internal.cpp',
+  'src/random.cpp',
+  'src/blockhasher.cpp'
 ]
 
 snapsnap_headers = include_directories('include')
